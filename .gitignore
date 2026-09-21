@@ -1,0 +1,21 @@
+# Environments
+.venv/
+env/
+venv/
+ENV/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.whl
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Temporary scrapers
+*.log
+scratch/
+marrakech_page1.html
