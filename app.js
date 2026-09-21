@@ -224,7 +224,7 @@
     return `
       <article class="card" data-id="${item.id}">
         <div class="card-img-wrap">
-          <img class="card-img" src="${imgUrl}" alt="${escapeHtml(item.title)}" loading="lazy" onerror="this.onerror=null;this.src='${fallbackImg}';">
+          <img class="card-img" src="${imgUrl}" alt="${escapeHtml(item.title)}" loading="lazy" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src='${fallbackImg}';">
           <div class="card-badges">
             <span class="badge ${transClass}">${item.transaction_type || 'Vente'}</span>
             <span class="badge badge-type">${item.house_type || 'Bien'}</span>
@@ -327,7 +327,7 @@
     }
 
     modalContent.innerHTML = `
-      <img class="modal-hero-img" src="${imgUrl}" alt="${escapeHtml(item.title)}" onerror="this.onerror=null;this.src='${fallbackImg}';">
+      <img class="modal-hero-img" src="${imgUrl}" alt="${escapeHtml(item.title)}" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src='${fallbackImg}';">
       <div class="modal-body">
         <div class="modal-price">${escapeHtml(item.price_raw || 'Prix sur demande')}</div>
         <h2 class="modal-title">${escapeHtml(item.title)}</h2>
