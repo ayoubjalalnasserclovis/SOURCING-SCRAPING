@@ -15,8 +15,8 @@
   <!-- Top Announcement Bar -->
   <div class="top-bar">
     <div class="container top-bar-content">
-      <span>🇲🇦 <strong>Mubawab Intelligence Marrakech</strong> — Données actualisées en temps réel via Scrapling</span>
-      <span class="badge-pulse"><span class="pulse-dot"></span> 3 054 Annonces Disponibles</span>
+      <span>🇲🇦 <strong>Marrakech Real Estate Sourcing Hub</strong> — 5 Plateformes Majeures (Mubawab, Avito, Kensington, Bosworth, Barnes/Sarouty)</span>
+      <span class="badge-pulse"><span class="pulse-dot"></span> 4 508 Annonces Actives</span>
     </div>
   </div>
 
@@ -31,8 +31,8 @@
           </svg>
         </div>
         <div>
-          <h1 class="brand-title">Mubawab<span>Explorer</span></h1>
-          <p class="brand-sub">Marrakech Real Estate Market</p>
+          <h1 class="brand-title">Marrakech<span>Sourcing</span></h1>
+          <p class="brand-sub">Multi-Platform Real Estate Intelligence (5 Sources)</p>
         </div>
       </div>
 
@@ -116,24 +116,37 @@
           </div>
         </div>
 
-        <!-- Facets (Type, Quartier, Price, Surface, Sort) -->
+        <!-- Facets (Platform, Type, Quartier, Price, Surface, Sort) -->
         <div class="filter-grid">
           
+          <!-- Plateforme / Source -->
+          <div class="form-group">
+            <label for="filter-platform">Plateforme Source</label>
+            <select id="filter-platform" class="custom-select">
+              <option value="all">Toutes les plateformes (4 508)</option>
+              <option value="Mubawab">Mubawab.ma (3 054)</option>
+              <option value="Kensington Luxury">Kensington Luxury (794)</option>
+              <option value="Avito">Avito.ma (250)</option>
+              <option value="Sarouty / Selektimmo">Barnes & Sarouty (231)</option>
+              <option value="Bosworth Property">Bosworth Property (179)</option>
+            </select>
+          </div>
+
           <!-- Type de bien -->
           <div class="form-group">
             <label for="filter-type">Type de Bien</label>
             <select id="filter-type" class="custom-select">
-              <option value="all">Tous les types (100%)</option>
-              <option value="Appartement">Appartement (1 316)</option>
-              <option value="Villa">Villa (944)</option>
-              <option value="Riad">Riad (172)</option>
-              <option value="Studio">Studio (125)</option>
-              <option value="Terrain">Terrain (111)</option>
-              <option value="Duplex">Duplex (97)</option>
-              <option value="Bureau">Bureau (95)</option>
-              <option value="Commerce">Commerce (79)</option>
-              <option value="Maison">Maison (41)</option>
-              <option value="Penthouse">Penthouse (3)</option>
+              <option value="all">Tous les types</option>
+              <option value="Villa">Villa (1 600+)</option>
+              <option value="Appartement">Appartement (1 500+)</option>
+              <option value="Riad">Riad (380+)</option>
+              <option value="Studio">Studio (160+)</option>
+              <option value="Terrain">Terrain (150+)</option>
+              <option value="Duplex">Duplex (100+)</option>
+              <option value="Maison">Maison (50+)</option>
+              <option value="Bureau">Bureau</option>
+              <option value="Commerce">Commerce</option>
+              <option value="Penthouse">Penthouse</option>
             </select>
           </div>
 

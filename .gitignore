@@ -19,3 +19,6 @@ Desktop.ini
 *.log
 scratch/
 marrakech_page1.html
+inspect_*.py
+test_*.py
+check_*.py

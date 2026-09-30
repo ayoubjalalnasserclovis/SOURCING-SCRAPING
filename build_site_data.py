@@ -1,6 +1,5 @@
 """
-Extracts listings from mubawab_listings.db and produces an optimized data.js
-for the static frontend, ensuring instant loading locally and on GitHub Pages.
+Generates data.js from sourcing_listings.db for the unified multi-platform web explorer.
 """
 
 import sqlite3
@@ -8,29 +7,32 @@ import json
 import os
 
 def build_data():
-    conn = sqlite3.connect("mubawab_listings.db")
+    conn = sqlite3.connect("sourcing_listings.db")
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
-    rows = cur.execute("SELECT * FROM listings ORDER BY price_numeric ASC").fetchall()
+    rows = cur.execute("SELECT * FROM sourcing_listings ORDER BY price_mad ASC").fetchall()
     listings = [dict(r) for r in rows]
 
     total = len(listings)
-    print(f"Loaded {total} listings from database.")
+    print(f"Loaded {total} unified listings from sourcing_listings.db.")
 
-    # Calculate summary stats
+    platforms = {}
     house_types = {}
     quartiers = {}
     total_price = 0
     price_count = 0
 
     for item in listings:
+        plat = item.get("platform") or "Autre"
         ht = item.get("house_type") or "Autre"
         q = item.get("quartier") or "Autre / Centre"
+        
+        platforms[plat] = platforms.get(plat, 0) + 1
         house_types[ht] = house_types.get(ht, 0) + 1
         quartiers[q] = quartiers.get(q, 0) + 1
         
-        p = item.get("price_numeric")
+        p = item.get("price_mad")
         if p and p > 0:
             total_price += p
             price_count += 1
@@ -40,19 +42,19 @@ def build_data():
     stats = {
         "total": total,
         "avg_price": avg_price,
+        "platforms": dict(sorted(platforms.items(), key=lambda x: x[1], reverse=True)),
         "house_types": dict(sorted(house_types.items(), key=lambda x: x[1], reverse=True)),
         "quartiers": dict(sorted(quartiers.items(), key=lambda x: x[1], reverse=True)),
     }
 
-    # Write data.js with window.MUBAWAB_DATA and window.MUBAWAB_STATS
-    js_content = f"""// Auto-generated data file for Mubawab Explorer
+    js_content = f"""// Auto-generated data file for Marrakech Multi-Platform Sourcing Explorer
 window.MUBAWAB_STATS = {json.dumps(stats, ensure_ascii=False, indent=2)};
 window.MUBAWAB_DATA = {json.dumps(listings, ensure_ascii=False)};
 """
     with open("data.js", "w", encoding="utf-8") as f:
         f.write(js_content)
 
-    print(f"[+] Created data.js ({os.path.getsize('data.js') / (1024*1024):.2f} MB)")
+    print(f"[+] Created unified data.js ({os.path.getsize('data.js') / (1024*1024):.2f} MB)")
 
 if __name__ == "__main__":
     build_data()

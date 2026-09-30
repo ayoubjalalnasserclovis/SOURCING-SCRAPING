@@ -14,6 +14,7 @@
 
   const filters = {
     search: '',
+    platform: 'all',
     trans: 'all',
     type: 'all',
     quartier: 'all',
@@ -28,6 +29,7 @@
   const searchInput = document.getElementById('search-input');
   const clearSearchBtn = document.getElementById('clear-search');
   const transBtns = document.querySelectorAll('.trans-btn');
+  const platformSelect = document.getElementById('filter-platform');
   const typeSelect = document.getElementById('filter-type');
   const quartierSelect = document.getElementById('filter-quartier');
   const priceMinInput = document.getElementById('price-min');
@@ -103,6 +105,7 @@
   // -------------------------------------------------------------------------
   function applyFilters() {
     const q = filters.search.toLowerCase().trim();
+    const platform = filters.platform;
     const trans = filters.trans;
     const type = filters.type;
     const quartier = filters.quartier;
@@ -112,6 +115,9 @@
     const maxS = filters.maxSurface;
 
     filteredListings = allListings.filter(item => {
+      // Platform
+      if (platform !== 'all' && item.platform !== platform) return false;
+
       // Transaction Type
       if (trans !== 'all' && item.transaction_type !== trans) return false;
 
@@ -121,8 +127,8 @@
       // Quartier
       if (quartier !== 'all' && item.quartier !== quartier) return false;
 
-      // Price Range
-      const p = item.price_numeric;
+      // Price Range (supports both price_mad and price_numeric)
+      const p = item.price_mad !== undefined ? item.price_mad : item.price_numeric;
       if (minP !== null && p !== null && p < minP) return false;
       if (maxP !== null && p !== null && p > maxP) return false;
 
@@ -133,7 +139,7 @@
 
       // Keyword Search
       if (q) {
-        const haystack = `${item.title} ${item.quartier} ${item.house_type} ${item.features} ${item.description}`.toLowerCase();
+        const haystack = `${item.title} ${item.platform} ${item.quartier} ${item.house_type} ${item.features} ${item.description}`.toLowerCase();
         if (!haystack.includes(q)) return false;
       }
 
@@ -150,10 +156,10 @@
   function sortListings() {
     switch (filters.sortBy) {
       case 'price-asc':
-        filteredListings.sort((a, b) => (a.price_numeric || 0) - (b.price_numeric || 0));
+        filteredListings.sort((a, b) => ((a.price_mad !== undefined ? a.price_mad : a.price_numeric) || 0) - ((b.price_mad !== undefined ? b.price_mad : b.price_numeric) || 0));
         break;
       case 'price-desc':
-        filteredListings.sort((a, b) => (b.price_numeric || 0) - (a.price_numeric || 0));
+        filteredListings.sort((a, b) => ((b.price_mad !== undefined ? b.price_mad : b.price_numeric) || 0) - ((a.price_mad !== undefined ? a.price_mad : a.price_numeric) || 0));
         break;
       case 'surface-desc':
         filteredListings.sort((a, b) => (b.surface_m2 || 0) - (a.surface_m2 || 0));
@@ -227,6 +233,7 @@
           <img class="card-img" src="${imgUrl}" alt="${escapeHtml(item.title)}" loading="lazy" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src='${fallbackImg}';">
           <div class="card-badges">
             <span class="badge ${transClass}">${item.transaction_type || 'Vente'}</span>
+            <span class="badge badge-platform">${escapeHtml(item.platform || 'Mubawab')}</span>
             <span class="badge badge-type">${item.house_type || 'Bien'}</span>
           </div>
           ${item.images_count > 0 ? `<span class="badge-photos">📸 ${item.images_count}</span>` : ''}
@@ -372,7 +379,7 @@
 
         <div class="modal-actions">
           <a href="${item.url}" target="_blank" rel="noopener noreferrer" class="btn btn-primary" style="flex:1;justify-content:center">
-            Consulter l'annonce officielle sur Mubawab.ma ↗
+            Consulter l'annonce originale (${escapeHtml(item.platform || 'Source')}) ↗
           </a>
         </div>
       </div>
@@ -420,6 +427,14 @@
         applyFilters();
       });
     });
+
+    // Platform select
+    if (platformSelect) {
+      platformSelect.addEventListener('change', (e) => {
+        filters.platform = e.target.value;
+        applyFilters();
+      });
+    }
 
     // Type select
     typeSelect.addEventListener('change', (e) => {
@@ -470,6 +485,7 @@
     const resetAll = () => {
       searchInput.value = '';
       clearSearchBtn.style.display = 'none';
+      if (platformSelect) platformSelect.value = 'all';
       typeSelect.value = 'all';
       quartierSelect.value = 'all';
       priceMinInput.value = '';
@@ -482,6 +498,7 @@
       document.querySelector('.trans-btn[data-trans="all"]').classList.add('active');
 
       filters.search = '';
+      filters.platform = 'all';
       filters.trans = 'all';
       filters.type = 'all';
       filters.quartier = 'all';
