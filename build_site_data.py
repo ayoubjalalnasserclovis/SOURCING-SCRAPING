@@ -1,5 +1,6 @@
 """
 Generates data.js from sourcing_listings.db for the unified multi-platform web explorer.
+Optimized for ultra-fast browser loading across all 46,954 properties.
 """
 
 import sqlite3
@@ -11,7 +12,16 @@ def build_data():
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
-    rows = cur.execute("SELECT * FROM sourcing_listings ORDER BY price_mad ASC").fetchall()
+    # Select all essential display fields for 46,954 properties
+    query = """
+        SELECT 
+            id, platform, title, url, transaction_type, house_type, 
+            quartier, price_raw, price_mad, surface_m2, bedrooms, 
+            bathrooms, main_image, substr(description, 1, 120) as description
+        FROM sourcing_listings 
+        ORDER BY price_mad ASC
+    """
+    rows = cur.execute(query).fetchall()
     listings = [dict(r) for r in rows]
 
     total = len(listings)
