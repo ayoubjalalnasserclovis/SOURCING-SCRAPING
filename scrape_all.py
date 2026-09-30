@@ -1,11 +1,16 @@
 """
-Master Concurrent Scraper for Mubawab.
-Scrapes all available listings with House Type & Quartier categorization,
-persists to SQLite database with UPSERT, and exports filtered datasets.
+Master Concurrent Scraper for Mubawab - Integrality Scraper for Marrakech & Surrounding Zones.
+Scrapes the full inventory with House Type & Quartier categorization,
+persists to SQLite database with UPSERT, and exports complete datasets.
+
+Constraints:
+- 1 PHOTO MAX per home (stored as single URL string 'main_image').
+- No large photo arrays stored.
 """
 
 import sys
 import io
+import os
 import time
 import json
 import csv
@@ -41,7 +46,15 @@ def get_base_session() -> Tuple[requests.Session, dict]:
     return session, cookies
 
 
-def fetch_single_page(page_url: str, cookies: dict, trans_type: str, city: str, retries: int = 3) -> Tuple[str, List[Dict[str, Any]], int]:
+def fetch_single_page(
+    page_num: int,
+    page_url: str,
+    cookies: dict,
+    trans_type: str,
+    city: str,
+    default_quartier: str = "Autre / Centre",
+    retries: int = 3
+) -> Tuple[int, str, List[Dict[str, Any]], int]:
     """Fetch and parse a single listing page with retry mechanism."""
     s = requests.Session(impersonate="chrome120")
     s.cookies.update(cookies)
@@ -55,83 +68,135 @@ def fetch_single_page(page_url: str, cookies: dict, trans_type: str, city: str, 
         try:
             r = s.get(page_url, timeout=25)
             if r.status_code == 200:
-                items = parse_page_listings(r.content, transaction_type=trans_type, city=city)
-                return page_url, items, r.status_code
+                items = parse_page_listings(
+                    r.content,
+                    transaction_type=trans_type,
+                    city=city,
+                    default_quartier=default_quartier
+                )
+                return page_num, page_url, items, r.status_code
             elif r.status_code == 404:
-                return page_url, [], 404
-        except Exception as e:
+                return page_num, page_url, [], 404
+        except Exception:
             if attempt == retries:
-                return page_url, [], 0
+                return page_num, page_url, [], 0
             time.sleep(1.0 * attempt)
             
-    return page_url, [], 0
+    return page_num, page_url, [], 0
 
 
 def scrape_category(
     base_url: str,
     trans_type: str,
     city: str,
+    default_quartier: str,
+    max_pages: int,
     cookies: dict,
     conn: sqlite3.Connection,
-    max_pages: int = 100,
-    max_workers: int = 6
+    min_pages: int = 1,
+    max_workers: int = 10
 ) -> int:
-    """Scrape all pages of a given category concurrently and save to DB in batches."""
-    print(f"\n" + "=" * 70)
-    print(f"[*] Starting scrape for [{city} - {trans_type}]: {base_url}")
-    print(f"[*] Target pages: {max_pages} | Concurrency: {max_workers} threads")
-    print("=" * 70)
+    """Scrape all pages of a given category concurrently with intelligent loop detection."""
+    print(f"\n" + "=" * 75)
+    print(f"[*] Category: [{trans_type}] {base_url}")
+    print(f"[*] City/Zone: {city} (Default Quartier: {default_quartier}) | Target Pages: {min_pages}-{max_pages}")
+    print("=" * 75)
 
-    # First fetch page 1 to check total listings and ensure category exists
-    _, p1_items, code = fetch_single_page(base_url, cookies, trans_type, city)
+    # First fetch page 1
+    _, _, p1_items, code = fetch_single_page(1, base_url, cookies, trans_type, city, default_quartier)
     if code != 200 or not p1_items:
-        print(f"[!] Category check failed (HTTP {code}). Skipping.")
+        print(f"[!] Page 1 check returned HTTP {code} ({len(p1_items)} items). Skipping category.")
         return 0
 
     save_listings_to_db(conn, p1_items)
-    total_scraped = len(p1_items)
-    print(f"[+] Page 1: {len(p1_items)} listings saved. Starting concurrent batch...")
+    category_seen_ids = set(item["id"] for item in p1_items)
+    last_seen_first_id = p1_items[0]["id"] if p1_items else None
+    consecutive_same_first_id = 0
+    consecutive_empty_or_dupe = 0
+    total_new = len(p1_items)
+    print(f"[+] Page 1: {len(p1_items)} listings saved. Launching concurrent extraction...")
 
-    # Build URLs for remaining pages
-    page_urls = [f"{base_url}:p:{p}" for p in range(2, max_pages + 1)]
-    consecutive_empty = 0
+    if max_pages <= 1:
+        return total_new
+
+    # Fetch remaining pages in sequential batches
+    batch_size = 12
+    all_page_nums = list(range(2, max_pages + 1))
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # Submit batches of pages
-        batch_size = 20
-        for i in range(0, len(page_urls), batch_size):
-            batch = page_urls[i : i + batch_size]
+        for batch_start_idx in range(0, len(all_page_nums), batch_size):
+            batch_pages = all_page_nums[batch_start_idx : batch_start_idx + batch_size]
             futures = {
-                executor.submit(fetch_single_page, url, cookies, trans_type, city): url
-                for url in batch
+                executor.submit(
+                    fetch_single_page,
+                    p,
+                    f"{base_url}:p:{p}",
+                    cookies,
+                    trans_type,
+                    city,
+                    default_quartier
+                ): p
+                for p in batch_pages
             }
-            batch_items = []
+
+            # Collect results for this batch
+            batch_results = []
             for future in as_completed(futures):
-                url = futures[future]
                 try:
-                    _, items, status = future.result()
-                    if items:
-                        batch_items.extend(items)
-                        consecutive_empty = 0
-                    else:
-                        consecutive_empty += 1
-                except Exception as e:
+                    res = future.result()
+                    batch_results.append(res)
+                except Exception:
                     pass
 
-            if batch_items:
-                save_listings_to_db(conn, batch_items)
-                total_scraped += len(batch_items)
-                cur_count = conn.cursor().execute("SELECT COUNT(*) FROM listings").fetchone()[0]
-                batch_range = f"{i+2}-{min(i+1+batch_size, max_pages)}"
-                print(f"[+] Pages {batch_range:>7}: +{len(batch_items)} items | Total in DB: {cur_count:,}")
+            # Sort batch results by page number to process in true sequence
+            batch_results.sort(key=lambda x: x[0])
 
-            if consecutive_empty >= 10:
-                print(f"[*] Reached end of listings for this category.")
+            batch_new_items = []
+            should_stop = False
+
+            for p_num, url, items, status in batch_results:
+                if status == 404 or not items:
+                    if p_num >= min_pages:
+                        consecutive_empty_or_dupe += 1
+                else:
+                    first_id = items[0]["id"] if items else None
+                    if first_id == last_seen_first_id:
+                        consecutive_same_first_id += 1
+                    else:
+                        consecutive_same_first_id = 0
+                        last_seen_first_id = first_id
+
+                    # Check how many items on this page are genuinely new
+                    new_on_page = [it for it in items if it["id"] not in category_seen_ids]
+                    if not new_on_page:
+                        if p_num >= min_pages:
+                            consecutive_empty_or_dupe += 1
+                    else:
+                        consecutive_empty_or_dupe = 0
+                        for it in new_on_page:
+                            category_seen_ids.add(it["id"])
+                    
+                    batch_new_items.extend(items)
+
+                # Mubawab loops fallback pages at the end of results (same first ID or consecutive dupes past min_pages)
+                if p_num >= min_pages and (consecutive_same_first_id >= 2 or consecutive_empty_or_dupe >= 4):
+                    print(f"[*] Confirmed end of listings reached for this category at page {p_num}.")
+                    should_stop = True
+                    break
+
+            if batch_new_items:
+                save_listings_to_db(conn, batch_new_items)
+                total_new += len(batch_new_items)
+                cur_total = conn.cursor().execute("SELECT COUNT(*) FROM listings").fetchone()[0]
+                p_range = f"{batch_pages[0]}-{batch_pages[-1]}"
+                print(f"[+] Pages {p_range:>7}: +{len(batch_new_items)} items | Total in DB: {cur_total:,}")
+
+            if should_stop:
                 break
 
-            time.sleep(0.5)
+            time.sleep(0.2)
 
-    return total_scraped
+    return total_new
 
 
 def export_all(db_path: str = "mubawab_listings.db"):
@@ -141,21 +206,36 @@ def export_all(db_path: str = "mubawab_listings.db"):
     cur = conn.cursor()
 
     total = cur.execute("SELECT COUNT(*) FROM listings").fetchone()[0]
-    print(f"\n[*] Exporting {total:,} total listings...")
+    print(f"\n" + "=" * 75)
+    print(f"[*] EXPORTING COMPLETE DATASET ({total:,} UNIQUE LISTINGS)...")
+    print("=" * 75)
+
+    all_rows = [dict(r) for r in cur.execute("SELECT * FROM listings ORDER BY price_numeric ASC").fetchall()]
+
+    # Verify single photo constraint strictly:
+    for row in all_rows:
+        img = row.get("main_image")
+        if isinstance(img, list):
+            row["main_image"] = img[0] if img else ""
+        elif not isinstance(img, str):
+            row["main_image"] = str(img or "")
 
     # 1. Full JSON
-    all_rows = [dict(r) for r in cur.execute("SELECT * FROM listings ORDER BY price_numeric ASC").fetchall()]
-    with open("mubawab_complete_listings.json", "w", encoding="utf-8") as f:
+    json_path = "mubawab_complete_listings.json"
+    with open(json_path, "w", encoding="utf-8") as f:
         json.dump(all_rows, f, ensure_ascii=False, indent=2)
-    print(f"[✓] Exported: mubawab_complete_listings.json ({len(all_rows):,} records)")
+    json_size_mb = os.path.getsize(json_path) / (1024 * 1024)
+    print(f"[✓] Exported: {json_path} ({len(all_rows):,} records, {json_size_mb:.2f} MB)")
 
     # 2. Full CSV
+    csv_path = "mubawab_complete_listings.csv"
     fieldnames = list(all_rows[0].keys()) if all_rows else []
-    with open("mubawab_complete_listings.csv", "w", encoding="utf-8-sig", newline="") as f:
+    with open(csv_path, "w", encoding="utf-8-sig", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(all_rows)
-    print(f"[✓] Exported: mubawab_complete_listings.csv ({len(all_rows):,} records)")
+    csv_size_mb = os.path.getsize(csv_path) / (1024 * 1024)
+    print(f"[✓] Exported: {csv_path} ({len(all_rows):,} records, {csv_size_mb:.2f} MB)")
 
     # 3. Filtered slices by House Type
     house_types = ["Appartement", "Villa", "Riad", "Studio", "Duplex", "Maison", "Terrain"]
@@ -167,7 +247,7 @@ def export_all(db_path: str = "mubawab_listings.db"):
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
                 writer.writeheader()
                 writer.writerows(rows)
-            print(f"  -> Exported slice: {filename} ({len(rows):,} records)")
+            print(f"  -> Slice: {filename} ({len(rows):,} records)")
 
     # 4. Filtered slices by Quartier
     quartiers = ["Guéliz", "Palmeraie", "Hivernage", "Majorelle", "Médina", "Targa", "M'hamid", "Agdal"]
@@ -180,47 +260,83 @@ def export_all(db_path: str = "mubawab_listings.db"):
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
                 writer.writeheader()
                 writer.writerows(rows)
-            print(f"  -> Exported slice: {filename} ({len(rows):,} records)")
+            print(f"  -> Slice: {filename} ({len(rows):,} records)")
 
     conn.close()
 
 
 def main():
     import argparse
-    parser = argparse.ArgumentParser(description="Complete Mubawab Scraper")
-    parser.add_argument("--max-pages", type=int, default=60, help="Maximum pages per category to scrape (default 60)")
-    parser.add_argument("--workers", type=int, default=6, help="Concurrent worker threads (default 6)")
+    parser = argparse.ArgumentParser(description="Complete Mubawab Integrality Scraper")
+    parser.add_argument("--workers", type=int, default=10, help="Concurrent worker threads (default 10)")
     args = parser.parse_args()
 
     t_start = time.time()
     conn = init_db("mubawab_listings.db")
     _, cookies = get_base_session()
 
-    # Categories to scrape completely
+    # Complete target inventory covering Marrakech and all surrounding zones
     categories = [
-        ("https://www.mubawab.ma/fr/ct/marrakech/immobilier-a-vendre", "Vente", "Marrakech"),
-        ("https://www.mubawab.ma/fr/ct/marrakech/immobilier-a-louer", "Location", "Marrakech"),
+        # 1. Main Marrakech Sales (~8,100 listings, ~262 pages)
+        ("https://www.mubawab.ma/fr/ct/marrakech/immobilier-a-vendre", "Vente", "Marrakech", "Autre / Centre", 260, 265),
+        # 2. Main Marrakech Rentals (~3,460 listings, ~109 pages)
+        ("https://www.mubawab.ma/fr/ct/marrakech/immobilier-a-louer", "Location", "Marrakech", "Autre / Centre", 108, 115),
+        # 3. Marrakech Vacation Rentals (~190 listings, ~7 pages)
+        ("https://www.mubawab.ma/fr/st/marrakech/appartements-vacational", "Location Vacances", "Marrakech", "Autre / Centre", 6, 10),
+        # 4. Surrounding Zones & Communes
+        ("https://www.mubawab.ma/fr/ct/ourika/immobilier-a-vendre", "Vente", "Marrakech", "Route de l'Ourika", 4, 6),
+        ("https://www.mubawab.ma/fr/ct/ourika/immobilier-a-louer", "Location", "Marrakech", "Route de l'Ourika", 1, 3),
+        ("https://www.mubawab.ma/fr/ct/harbil/immobilier-a-vendre", "Vente", "Marrakech", "Tamansourt", 1, 3),
+        ("https://www.mubawab.ma/fr/ct/harbil/immobilier-a-louer", "Location", "Marrakech", "Tamansourt", 1, 2),
+        ("https://www.mubawab.ma/fr/ct/tassoultante/immobilier-a-vendre", "Vente", "Marrakech", "Tassoultante", 3, 5),
+        ("https://www.mubawab.ma/fr/ct/tassoultante/immobilier-a-louer", "Location", "Marrakech", "Tassoultante", 1, 2),
+        ("https://www.mubawab.ma/fr/ct/tameslohte/immobilier-a-vendre", "Vente", "Marrakech", "Tameslohte", 2, 4),
+        ("https://www.mubawab.ma/fr/ct/tameslohte/immobilier-a-louer", "Location", "Marrakech", "Tameslohte", 1, 2),
+        ("https://www.mubawab.ma/fr/ct/ait-ourir/immobilier-a-vendre", "Vente", "Marrakech", "Aït Ourir", 2, 4),
+        ("https://www.mubawab.ma/fr/ct/ait-ourir/immobilier-a-louer", "Location", "Marrakech", "Aït Ourir", 1, 2),
+        ("https://www.mubawab.ma/fr/ct/amizmiz/immobilier-a-vendre", "Vente", "Marrakech", "Route d'Amizmiz", 2, 4),
+        ("https://www.mubawab.ma/fr/ct/amizmiz/immobilier-a-louer", "Location", "Marrakech", "Route d'Amizmiz", 1, 2),
+        ("https://www.mubawab.ma/fr/ct/agafay/immobilier-a-vendre", "Vente", "Marrakech", "Agafay", 1, 2),
+        ("https://www.mubawab.ma/fr/ct/agafay/immobilier-a-louer", "Location", "Marrakech", "Agafay", 1, 2),
     ]
 
-    for base_url, trans_type, city in categories:
+    for base_url, trans_type, city, default_q, min_p, max_p in categories:
         scrape_category(
             base_url=base_url,
             trans_type=trans_type,
             city=city,
+            default_quartier=default_q,
+            min_pages=min_p,
+            max_pages=max_p,
             cookies=cookies,
             conn=conn,
-            max_pages=args.max_pages,
             max_workers=args.workers
         )
 
-    # Export datasets
+    # Export all datasets
     export_all("mubawab_listings.db")
 
     # Print summary
-    from filter_listings import print_summary
-    print_summary("mubawab_listings.db")
+    try:
+        from filter_listings import print_summary
+        print_summary("mubawab_listings.db")
+    except Exception as e:
+        print(f"Summary print: {e}")
 
-    print(f"\n[✓] All jobs completed in {time.time() - t_start:.1f}s.")
+    # Also sync unified sourcing database and data.js
+    try:
+        from unify_sourcing import ingest_mubawab, export_unified, DB_PATH
+        s_conn = sqlite3.connect(DB_PATH)
+        ingest_mubawab(s_conn)
+        export_unified(s_conn)
+        s_conn.close()
+        
+        from build_site_data import build_data
+        build_data()
+    except Exception as e:
+        print(f"Site data sync note: {e}")
+
+    print(f"\n[✓] ALL JOBS COMPLETED in {time.time() - t_start:.1f}s.")
 
 
 if __name__ == "__main__":

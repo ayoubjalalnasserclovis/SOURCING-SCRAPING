@@ -3,12 +3,16 @@
 Production Scraper for Kensington Luxury Properties in Marrakech
 (Christie's International Real Estate affiliate)
 
-Extracts all luxury listings in Marrakech:
-- Villas, palatial estates, golf residences, luxury riads, apartments, and land.
-- Standardized fields:
-  id, platform, title, url, transaction_type, house_type, city, quartier,
-  price_raw, price_mad, surface_m2, bedrooms, bathrooms, features,
-  description, main_image, images_count, seller_type, scraped_at.
+Extracts the absolute integrality of all luxury properties in and near Marrakech:
+- Integrates WP Grid Builder listing archives, XML Sitemaps, and WordPress REST API with ACF.
+- Covers Marrakech and surrounding domains: Palmeraie, Amelkis, Al Maaden, Samanah,
+  Royal Palm, Route de l'Ourika, Route d'Amizmiz, Route de Fès, Route de Ouarzazate,
+  Tameslouhte, Tnine Ourika, etc.
+- Standard fields:
+  id, platform='kensington', title, url, transaction_type, house_type,
+  city='Marrakech', quartier, price_raw, price_mad, surface_m2, bedrooms,
+  bathrooms, features, description, main_image (1 photo max), seller_type, scraped_at.
+- Strict constraint: ONE PHOTO MAX PER HOME SCRAPED.
 - Saves output to kensington_marrakech.json and kensington_marrakech.csv.
 """
 
@@ -17,6 +21,7 @@ import sys
 import re
 import csv
 import json
+import html
 import time
 from datetime import date
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -33,10 +38,12 @@ if sys.platform == 'win32':
 
 BASE_URL = "https://www.kensingtonmorocco.com"
 LISTING_BASE = "https://www.kensingtonmorocco.com/proprietes/marrakech/"
-MAX_PAGES = 75
-WORKERS_LISTING = 10
+WP_API_BASE = "https://www.kensingtonmorocco.com/wp-json/wp/v2"
+MAX_LISTING_PAGES = 75
+WORKERS_LISTING = 12
 WORKERS_DETAIL = 12
 REQUEST_TIMEOUT = 25
+EUR_TO_MAD_RATE = 10.8
 
 KNOWN_QUARTIERS = [
     'Palmeraie', 'Amelkis', 'Hivernage', 'Guéliz', 'Gueliz', "Route de l'Ourika",
@@ -45,28 +52,31 @@ KNOWN_QUARTIERS = [
     'Targa', 'Agdal', 'Samanah', 'Royal Palm', 'Chrifia', 'Mhamid', 'Majorelle',
     'Sidi Ghanem', 'Camp de Base', 'Bab Atlas', 'Ain Itti', 'Daoudiate',
     'Sidi Abdallah Ghiat', 'Massira', 'Semlalia', 'Tassoultante', 'Victor Hugo',
-    'Golf City', 'Noria', 'Argan Golf'
+    'Golf City', 'Noria', 'Argan Golf', 'Prestigia', 'Izdihar', 'Ennakhil',
+    'Belvédère', 'Ménara', 'Menara', 'Tameslouhte', 'Tnine Ourika', 'Ouarzazate'
 ]
 
 def clean_quartier(q: str) -> str:
+    if not q:
+        return 'Marrakech'
     ql = q.lower().strip()
     if ql in ['medina', 'médina']:
         return 'Médina'
     elif ql in ['gueliz', 'guéliz']:
         return 'Guéliz'
-    elif 'palmeraie' in ql:
+    elif 'palmeraie' in ql or 'ennakhil' in ql:
         return 'Palmeraie'
     elif 'amelkis' in ql:
         return 'Amelkis'
     elif 'hivernage' in ql:
         return 'Hivernage'
-    elif 'al maaden' in ql:
+    elif 'al maaden' in ql or 'maaden' in ql:
         return 'Al Maaden'
-    elif 'amizmiz' in ql:
+    elif 'amizmiz' in ql or 'barrage' in ql:
         return "Route d'Amizmiz"
     elif 'ourika' in ql:
         return "Route de l'Ourika"
-    elif 'tahanaout' in ql:
+    elif 'tahanaout' in ql or 'tarnahout' in ql:
         return "Route de Tahanaout"
     elif 'fès' in ql or 'fes' in ql:
         return "Route de Fès"
@@ -80,15 +90,34 @@ def clean_quartier(q: str) -> str:
         return 'Targa'
     elif 'agdal' in ql:
         return 'Agdal'
+    elif 'ouarzazate' in ql:
+        return 'Route de Ouarzazate'
+    elif 'tameslouht' in ql:
+        return "Route d'Amizmiz"
+    elif 'noria' in ql:
+        return 'Noria Golf'
+    elif 'argan' in ql:
+        return 'Argan Golf'
+    elif 'atlas' in ql:
+        return 'Bab Atlas'
+    elif 'semlalia' in ql:
+        return 'Semlalia'
+    elif 'majorelle' in ql:
+        return 'Majorelle'
+    elif 'chrifia' in ql:
+        return 'Chrifia'
+    elif 'sidi abdallah' in ql or 'sidi abdellah' in ql:
+        return 'Route de Sidi Abdellah Ghyate'
     return q.title()
 
 def extract_neighborhood(card_loc: str, title: str, desc: str, url: str) -> str:
-    if 'Marrakech -' in card_loc:
-        q = card_loc.split('Marrakech -')[-1].strip()
-        if q:
-            return clean_quartier(q)
-    elif 'Marrakech' in card_loc and len(card_loc.replace('Marrakech', '').strip(' -/,')) > 2:
-        return clean_quartier(card_loc.replace('Marrakech', '').strip(' -/,'))
+    if card_loc:
+        if 'Marrakech -' in card_loc:
+            q = card_loc.split('Marrakech -')[-1].strip()
+            if q:
+                return clean_quartier(q)
+        elif 'Marrakech' in card_loc and len(card_loc.replace('Marrakech', '').strip(' -/,')) > 2:
+            return clean_quartier(card_loc.replace('Marrakech', '').strip(' -/,'))
 
     scope = f"{title} {url} {desc}"
     for kq in KNOWN_QUARTIERS:
@@ -97,7 +126,26 @@ def extract_neighborhood(card_loc: str, title: str, desc: str, url: str) -> str:
     
     return 'Marrakech'
 
+def normalize_house_type(prop_type: str, subtype: str, title: str, desc: str, url: str) -> str:
+    combined = f"{prop_type} {subtype} {title} {desc} {url}".lower()
+    if 'riad' in combined or 'dar ' in combined:
+        return 'Riad'
+    elif any(k in combined for k in ['palais', 'palace', 'hôtel particulier', 'hotel particulier', 'mansion']):
+        return 'Palais'
+    elif any(k in combined for k in ['appartement', 'apartment', 'penthouse', 'duplex', 'triplex', 'studio', 'flat']):
+        return 'Appartement'
+    elif any(k in combined for k in ['terrain', 'land', 'parcelle', 'lot', 'plot']):
+        return 'Terrain'
+    elif any(k in combined for k in ['commercial', 'bureau', 'office', 'commerce', 'fond de commerce', 'local', 'business', 'premises', 'immeuble']):
+        return 'Commercial'
+    elif any(k in combined for k in ['hotel', 'hôtel', "maison d'hôte", "maison d'hote", "bed and breakfast"]):
+        return 'Hôtel'
+    elif any(k in combined for k in ['villa', 'propriété', 'demeure', 'ferme', 'farm', 'maison', 'house', 'townhouse']):
+        return 'Villa'
+    return 'Villa'
+
 def fetch_listing_page(page_num: int):
+    """Fetch one WP Grid Builder pagination page from the website."""
     url = f"{LISTING_BASE}?_pagination_properties={page_num}"
     retries = 3
     for attempt in range(retries):
@@ -111,7 +159,7 @@ def fetch_listing_page(page_num: int):
             items = []
             for c in cards:
                 link = c.css('a::attr(href)').get('')
-                if not link or 'marrakech' not in link.lower():
+                if not link:
                     continue
                 if not link.startswith('http'):
                     link = BASE_URL + link
@@ -131,7 +179,7 @@ def fetch_listing_page(page_num: int):
                 excerpt = " ".join([t.strip() for t in c.xpath('.//div[contains(@style, "color: var(--shade-dark)")]//text()').getall() if t.strip()])
                 
                 items.append({
-                    'url': link,
+                    'url': link.rstrip('/'),
                     'title': title,
                     'price_raw_card': price,
                     'has_euro': has_euro,
@@ -142,245 +190,228 @@ def fetch_listing_page(page_num: int):
             return page_num, items
         except Exception as e:
             if attempt == retries - 1:
-                print(f"[!] Error fetching page {page_num}: {e}")
                 return page_num, []
             time.sleep(1)
 
-def fetch_and_parse_property(card_data: dict) -> dict:
-    url = card_data['url']
-    html = ""
+def fetch_wp_api_page(post_type: str, page_num: int):
+    """Fetch one page of 100 items from WP REST API."""
+    url = f"{WP_API_BASE}/{post_type}?per_page=100&page={page_num}"
     retries = 3
     for attempt in range(retries):
         try:
             resp = requests.get(url, impersonate='chrome120', timeout=REQUEST_TIMEOUT)
             if resp.status_code == 200:
-                html = resp.content.decode('utf-8', errors='replace')
-                break
-        except Exception as e:
+                data = resp.json()
+                if isinstance(data, list):
+                    return post_type, page_num, data
+            return post_type, page_num, []
+        except Exception:
             if attempt == retries - 1:
-                print(f"[!] Warning: failed to fetch detail for {url}: {e}")
-            time.sleep(0.5)
+                return post_type, page_num, []
+            time.sleep(1)
 
-    sel = Selector(html) if html else None
+def is_marrakech_or_surrounding(item: dict) -> bool:
+    """Filter to ensure the property belongs to Marrakech or surrounding domains."""
+    link = item.get('link', '').lower()
+    if link.rstrip('/') == 'https://www.kensingtonmorocco.com/vente':
+        return False
+    
+    # 1. Direct path check
+    if '/marrakech/' in link:
+        return True
+    if any(k in link for k in ['/tameslouhte/', '/tnine-ourika/', '/ouarzazate/']):
+        return True
 
+    acf = item.get('acf') or {}
+    addr = str((acf.get('google_map') or {}).get('address', ''))
+    city = str(acf.get('city', ''))
+    
+    # 2. ACF address/city check
+    if any(m in addr.lower() or m in city.lower() for m in ['marrakech', 'ourika', 'tameslouht', 'ouarzazate']):
+        return True
+
+    # 3. Known domain check in description or title
+    title = str(item.get('title', {}).get('rendered', '')).lower()
+    desc = str(acf.get('description_fr', '') or acf.get('description_eng', '')).lower()
+    for kq in KNOWN_QUARTIERS:
+        if re.search(r'\b' + re.escape(kq.lower()) + r'\b', f"{title} {desc}"):
+            return True
+
+    return False
+
+def parse_property_from_api(item: dict, post_type: str, card_map: dict) -> dict:
+    """Parse property item from WP REST API + ACF, augmented with card data."""
+    acf = item.get('acf') or {}
+    link = item.get('link', '').rstrip('/')
+    
     # 1. ID & Ref
-    prop_id = None
-    if sel:
-        ref_el = sel.css('.property-price-bloc .size-16::text').get()
-        if ref_el and 'Ref:' in ref_el:
-            prop_id = ref_el.replace('Ref:', '').strip()
-    if not prop_id:
-        # Fallback to URL slug
-        prop_id = url.rstrip('/').split('/')[-1]
-
+    ref = acf.get('reference')
+    if not ref or not str(ref).strip():
+        ref = link.rstrip('/').split('/')[-1]
+    
     # 2. Platform
     platform = 'kensington'
 
     # 3. Title
-    title = card_data.get('title', '')
-    if not title and sel:
-        # Extract from title tag
-        page_title = sel.css('title::text').get('')
-        if '|' in page_title:
-            title = page_title.split('|')[0].strip()
-        else:
-            title = sel.css('h2::text').get('') or sel.css('h1::text').get('')
+    raw_title = item.get('title', {}).get('rendered', '') or acf.get('titlefr', '')
+    title = html.unescape(raw_title).strip()
     if not title:
-        title = prop_id.replace('-', ' ').title()
+        title = ref.replace('-', ' ').title()
 
     # 4. URL
-    full_url = url
+    full_url = link + '/'
 
-    # 5. Transaction Type: 'Vente' or 'Location'
-    card_price_text = card_data.get('price_raw_card', '').strip()
-    detail_price_text = ""
-    if sel:
-        price_bloc = sel.css('.property-price-bloc')
-        detail_price_text = " ".join(price_bloc.css('.size-22::text').getall()).strip()
-
-    combined_price_str = f"{detail_price_text} {card_price_text}".lower()
-    
-    if any(k in url.lower() for k in ['/location', '/locations', '/vacances']) or \
-       any(k in combined_price_str for k in ['mois', 'semaine', 'nuit', 'month', 'week', 'night']):
+    # 5. Transaction Type
+    if post_type in ['rental_properties', 'holiday_rental'] or \
+       any(k in link for k in ['/locations/', '/vacances/', '/rent/']):
         trans_type = 'Location'
     else:
         trans_type = 'Vente'
 
-    # 6. House Type: 'Villa', 'Riad', 'Appartement', 'Terrain', etc.
-    headings = " ".join(sel.css('h1::text').getall()) if sel else ""
-    full_text_lower = f"{url} {title} {headings} {card_data.get('excerpt', '')}".lower()
+    # 6. Description
+    desc_fr = acf.get('description_fr', '')
+    desc_eng = acf.get('description_eng', '')
+    description = desc_fr.strip() if desc_fr and len(desc_fr.strip()) > 30 else (desc_eng.strip() if desc_eng else '')
     
-    if 'riad' in full_text_lower or 'dar ' in full_text_lower:
-        house_type = 'Riad'
-    elif any(k in full_text_lower for k in ['appartement', 'apartment', 'penthouse', 'duplex', 'studio']):
-        house_type = 'Appartement'
-    elif any(k in full_text_lower for k in ['terrain', 'land', 'parcelle', 'lot']):
-        house_type = 'Terrain'
-    elif any(k in full_text_lower for k in ['palais', 'palace']):
-        house_type = 'Palais'
-    elif any(k in full_text_lower for k in ['commercial', 'bureau', 'commerce', 'fond de commerce']):
-        house_type = 'Commercial'
-    elif any(k in full_text_lower for k in ['hotel', 'hôtel', "maison d'hôte", "maison d'hote"]):
-        house_type = 'Hôtel'
-    elif any(k in full_text_lower for k in ['villa', 'propriété', 'demeure', 'maison', 'residence', 'résidence']):
-        house_type = 'Villa'
-    else:
-        house_type = 'Villa'
+    card_info = card_map.get(link, {})
+    if not description:
+        description = card_info.get('excerpt', '')
 
-    # 7. City
+    # 7. House Type
+    pinfo = acf.get('property_info_fr') or acf.get('property_info') or {}
+    subtype = str(pinfo.get('subtype', ''))
+    prop_type = str(acf.get('property_type', ''))
+    house_type = normalize_house_type(prop_type, subtype, title, description, link)
+
+    # 8. City
     city = 'Marrakech'
 
-    # 8. Description
-    description = ""
-    if sel:
-        left_col = sel.xpath('//section[2]//div[contains(@class, "grid--2-1")]/div[1]')
-        desc_blocks = left_col.css('div.ct-code-block')
-        desc_texts = []
-        for db in desc_blocks:
-            t = " ".join(db.css('::text').getall()).strip()
-            if len(t) > 35 and not any(k in t.lower() for k in ['retour']):
-                desc_texts.append(t)
-        if desc_texts:
-            description = max(desc_texts, key=len)
-    
-    if not description:
-        description = card_data.get('excerpt', '')
-
     # 9. Quartier
-    quartier = extract_neighborhood(
-        card_loc=card_data.get('loc_card', ''),
-        title=title,
-        desc=description,
-        url=url
-    )
+    card_loc = card_info.get('loc_card', '')
+    quartier = extract_neighborhood(card_loc, title, description, link)
 
-    # 10. Price raw & Price MAD
-    p_text = detail_price_text or card_price_text
-    p_clean = p_text.replace('\xa0', ' ').strip()
-
+    # 10. Price Raw & Price MAD
+    is_poa = str(acf.get('poa', '')).lower() in ['true', '1', 'yes']
+    price_val = acf.get('price')
+    cur = str(acf.get('currency', 'EUR')).strip()
+    period = acf.get('price_period_fr') or acf.get('price_period') or ''
+    
     price_raw = None
     price_mad = None
-    is_euro = False
-    is_mad = False
 
-    if not p_clean or 'psd' in p_clean.lower() or 'demande' in p_clean.lower():
+    if is_poa or not price_val or str(price_val).strip() in ['0', '']:
         price_raw = 'Prix sur demande'
         price_mad = None
     else:
-        if '€' in p_clean or (sel and bool(sel.css('.property-price-bloc .fa-euro-sign'))) or card_data.get('has_euro'):
-            is_euro = True
-        elif 'dh' in p_clean.lower() or 'mad' in p_clean.lower():
-            is_mad = True
+        try:
+            amt = int(float(str(price_val).replace(' ', '').replace(',', '')))
+            period_str = ""
+            if period:
+                period_str = f" / {period.title()}"
+            elif trans_type == 'Location':
+                if 'week' in period.lower() or 'semaine' in period.lower() or post_type == 'holiday_rental':
+                    period_str = " / Semaine"
+                else:
+                    period_str = " / Mois"
 
-        digits_str = re.sub(r'[^\d]', '', p_clean.split('/')[0])
-        if digits_str:
-            amt = int(digits_str)
-            period = ""
-            if '/ mois' in p_clean.lower() or 'mois' in p_clean.lower():
-                period = " / Mois"
-            elif '/ semaine' in p_clean.lower() or 'semaine' in p_clean.lower():
-                period = " / Semaine"
-            elif '/ nuit' in p_clean.lower() or 'nuit' in p_clean.lower():
-                period = " / Nuit"
-
-            if is_mad:
-                price_raw = f"{amt:,} MAD{period}".replace(',', ' ')
+            if cur.upper() in ['MAD', 'DH', 'DHS']:
+                price_raw = f"{amt:,} MAD{period_str}".replace(',', ' ')
                 price_mad = amt
             else:
-                # Default currency is EUR on Kensington
-                price_raw = f"€{amt:,}{period}".replace(',', ' ')
-                price_mad = int(round(amt * 10.8))
-        else:
-            price_raw = p_clean or 'Prix sur demande'
+                price_raw = f"€{amt:,}{period_str}".replace(',', ' ')
+                price_mad = int(round(amt * EUR_TO_MAD_RATE))
+        except Exception:
+            price_raw = str(price_val)
             price_mad = None
 
-    # 11. Surface m2, Bedrooms, Bathrooms
+    # Fallback to card price if API price was empty
+    if not price_raw and card_info.get('price_raw_card'):
+        price_raw = card_info.get('price_raw_card')
+
+    # 11. Surface m2
+    psize = pinfo.get('property_size') or {}
     surface_m2 = None
-    bedrooms = None
-    bathrooms = None
+    try:
+        internal_sz = psize.get('internal_size')
+        if internal_sz and int(float(str(internal_sz).replace(' ', ''))) > 0:
+            surface_m2 = int(float(str(internal_sz).replace(' ', '')))
+        else:
+            plot_sz = psize.get('plot_size')
+            if plot_sz and int(float(str(plot_sz).replace(' ', ''))) > 0:
+                surface_m2 = int(float(str(plot_sz).replace(' ', '')))
+    except Exception:
+        pass
 
-    if sel:
-        # Overview specs in section 2
-        spec_p_elements = sel.xpath('//section[2]//div[contains(@class, "grid--3") or contains(@class, "grid")]/p')
-        for p in spec_p_elements:
-            p_sel = Selector(p.get())
-            classes = p_sel.css('i::attr(class)').get() or ''
-            text = " ".join(p_sel.css('::text').getall()).strip()
-            
-            # Bed
-            if 'fa-bed' in classes or 'chambre' in text.lower():
-                m = re.search(r'(\d+)', text)
-                if m:
-                    bedrooms = int(m.group(1))
-            # Surface habitable
-            elif 'fa-house' in classes:
-                m = re.search(r'(\d+[\s\d]*)', text.replace('\xa0', ' '))
-                if m:
-                    surface_m2 = int(re.sub(r'\s+', '', m.group(1)))
-            # Surface ruler (plot or habitable fallback)
-            elif ('fa-ruler' in classes or 'm²' in text or 'm2' in text) and surface_m2 is None:
-                m = re.search(r'(\d+[\s\d]*)', text.replace('\xa0', ' '))
-                if m:
-                    surface_m2 = int(re.sub(r'\s+', '', m.group(1)))
-
-        # Detailed rooms list
-        room_lis = sel.xpath('//section[2]//ul[contains(@class, "grid--2")]/li//text()').getall()
-        rooms_text = " | ".join([r.strip() for r in room_lis if r.strip()])
-        
-        # Check bathrooms
-        m_bath = re.search(r'(?:salle[s]?\s*de\s*bains?|sdb|salles?\s*d\'eau)\s*(?:/\s*toilettes)?\s*:\s*(\d+)', rooms_text, re.IGNORECASE)
-        if m_bath:
-            bathrooms = int(m_bath.group(1))
-        
-        # Bed fallback from rooms list
-        if bedrooms is None:
-            m_bed = re.search(r'(?:chambre[s]?|suite[s]?)\s*:\s*(\d+)', rooms_text, re.IGNORECASE)
-            if m_bed:
-                bedrooms = int(m_bed.group(1))
-
-    # Surface & Bathrooms fallback from description
     if surface_m2 is None and description:
         m_surf = re.search(r'(\d+[\s\d]*)\s*m[²2]', description)
         if m_surf:
             surface_m2 = int(re.sub(r'\s+', '', m_surf.group(1)))
 
+    # 12. Bedrooms & Bathrooms
+    bedrooms = None
+    try:
+        beds_total = acf.get('bedrooms_total')
+        if beds_total is not None and str(beds_total).isdigit() and int(beds_total) > 0:
+            bedrooms = int(beds_total)
+    except Exception:
+        pass
+
+    bathrooms = None
+    areas = acf.get('areas_fr') or acf.get('areas') or []
+    if isinstance(areas, list):
+        for a in areas:
+            t = (a.get('type') or '').lower()
+            if any(k in t for k in ['bain', 'bath', 'douche', 'shower']):
+                num = a.get('number')
+                if num and str(num).isdigit():
+                    bathrooms = (bathrooms or 0) + int(num)
+
+    # Fallback from description
+    if bedrooms is None and description:
+        m_bed = re.search(r'(\d+)\s*(?:chambre[s]?|suite[s]?)', description, re.IGNORECASE)
+        if m_bed:
+            bedrooms = int(m_bed.group(1))
+
     if bathrooms is None and description:
-        m_b = re.search(r'(\d+)\s*(?:salles?\s*de\s*bains?|sdb)', description, re.IGNORECASE)
-        if m_b:
-            bathrooms = int(m_b.group(1))
+        m_bath = re.search(r'(\d+)\s*(?:salles?\s*de\s*bains?|sdb|salles?\s*d\'eau)', description, re.IGNORECASE)
+        if m_bath:
+            bathrooms = int(m_bath.group(1))
 
-    # 12. Features (luxury amenities)
-    features = []
-    if sel:
-        feature_items = sel.xpath('//section[2]//ul[contains(@class, "grid--3")]/li//text()').getall()
-        features = [f.strip() for f in feature_items if f.strip()]
-        
-        # Add luxury rooms if present
-        room_lis_text = " ".join(sel.xpath('//section[2]//ul[contains(@class, "grid--2")]/li//text()').getall())
-        for luxury_kw in ['Hammam', 'Spa', 'Piscine', 'Jacuzzi', 'Salle de sport', 'Cinéma', 'Tennis', 'Sauna']:
-            if luxury_kw.lower() in room_lis_text.lower() and not any(luxury_kw.lower() in f.lower() for f in features):
-                features.append(luxury_kw)
+    # 13. Features
+    feats = []
+    prop_feats = acf.get('property_features_fr') or acf.get('property_features') or []
+    if isinstance(prop_feats, list):
+        for f in prop_feats:
+            fname = f.get('feature')
+            if fname and fname.strip() and fname.strip() not in feats:
+                feats.append(fname.strip())
 
-    # 13. Images
-    clean_imgs = []
-    if sel:
-        gallery_imgs = sel.css('section:first-of-type img::attr(src)').getall()
-        for im in gallery_imgs:
-            high_res = re.sub(r'-\d+x\d+(\.\w+)$', r'\1', im)
-            if high_res not in clean_imgs:
-                clean_imgs.append(high_res)
+    # Add luxury amenities from areas_fr
+    if isinstance(areas, list):
+        for a in areas:
+            t = (a.get('type') or '').strip()
+            for kw in ['Hammam', 'Spa', 'Piscine', 'Jacuzzi', 'Salle de sport', 'Cinéma', 'Tennis', 'Sauna']:
+                if kw.lower() in t.lower() and not any(kw.lower() in x.lower() for x in feats):
+                    feats.append(kw)
 
-    images_count = len(clean_imgs)
-    main_image = clean_imgs[0] if clean_imgs else card_data.get('img_card')
-    if images_count == 0 and main_image:
-        images_count = 1
+    # 14. Main Image (STRICT CONSTRAINT: ONE PHOTO MAX PER HOME)
+    # Store ONLY a single string URL. Never an array.
+    main_image = ""
+    img_data = acf.get('image_data')
+    if isinstance(img_data, list) and img_data:
+        first_img = img_data[0].get('image_url_apimo') or img_data[0].get('image_url')
+        if first_img:
+            main_image = str(first_img).strip()
 
-    # 14. Seller Type & Scraped At
+    if not main_image and card_info.get('img_card'):
+        main_image = str(card_info.get('img_card')).strip()
+
+    # 15. Seller Type & Scraped At
     seller_type = 'Professionnel (Kensington Luxury)'
     scraped_at = str(date.today())
 
     return {
-        'id': prop_id,
+        'id': str(ref),
         'platform': platform,
         'title': title,
         'url': full_url,
@@ -393,95 +424,154 @@ def fetch_and_parse_property(card_data: dict) -> dict:
         'surface_m2': surface_m2,
         'bedrooms': bedrooms,
         'bathrooms': bathrooms,
-        'features': features,
+        'features': feats,
         'description': description,
         'main_image': main_image,
-        'images_count': images_count,
         'seller_type': seller_type,
         'scraped_at': scraped_at
     }
 
 def main():
     print("=" * 70)
-    print("Starting Kensington Luxury Properties Scraper (Marrakech)")
+    print("KENSINGTON LUXURY PROPERTIES - INTEGRAL MARRAKECH SCRAPER")
     print("=" * 70)
-
     start_time = time.time()
 
-    # Step 1: Collect all listing pages
-    print(f"[1/3] Scraping listing pages 1 to {MAX_PAGES}...")
-    all_properties = {}
-
+    # Step 1: Collect listing cards across all 75 pagination pages
+    print(f"[1/4] Scraping WP Grid Builder listing pages (1 to {MAX_LISTING_PAGES})...")
+    card_map = {}
     with ThreadPoolExecutor(max_workers=WORKERS_LISTING) as executor:
-        futures = {executor.submit(fetch_listing_page, p): p for p in range(1, MAX_PAGES + 1)}
+        futures = {executor.submit(fetch_listing_page, p): p for p in range(1, MAX_LISTING_PAGES + 1)}
         for future in as_completed(futures):
-            page_num = futures[future]
-            try:
-                p_num, items = future.result()
-                for item in items:
-                    if item['url'] not in all_properties:
-                        all_properties[item['url']] = item
-            except Exception as e:
-                print(f"[!] Error processing listing page {page_num}: {e}")
+            p_num, items = future.result()
+            for it in items:
+                if it['url'] not in card_map:
+                    card_map[it['url']] = it
 
-    total_listings = len(all_properties)
-    print(f"[OK] Discovered {total_listings} unique luxury listings across Marrakech.")
+    print(f"[✓] Discovered {len(card_map)} property cards from listing grid pages.")
 
-    # Step 2: Fetch and parse detail pages concurrently
-    print(f"[2/3] Fetching and parsing {total_listings} property detail pages...")
-    results = []
-    completed = 0
+    # Step 2: Fetch all properties via WP REST API
+    print("[2/4] Querying WordPress REST API across all property post types...")
+    api_items = []
+    
+    # Endpoints to query: (post_type, max_pages)
+    post_types = [
+        ('property_sales', 10),      # ~778 sales
+        ('rental_properties', 4),    # ~170 long-term rentals
+        ('holiday_rental', 4)        # ~184 holiday rentals
+    ]
 
     with ThreadPoolExecutor(max_workers=WORKERS_DETAIL) as executor:
-        futures = {executor.submit(fetch_and_parse_property, item): item['url'] for item in all_properties.values()}
+        futures = []
+        for pt, max_p in post_types:
+            for p in range(1, max_p + 1):
+                futures.append(executor.submit(fetch_wp_api_page, pt, p))
+
         for future in as_completed(futures):
-            try:
-                record = future.result()
-                results.append(record)
-            except Exception as e:
-                print(f"[!] Error processing property: {e}")
-            completed += 1
-            if completed % 50 == 0 or completed == total_listings:
-                print(f"    Progress: {completed}/{total_listings} ({completed/total_listings*100:.1f}%)")
+            pt, p_num, items = future.result()
+            for it in items:
+                api_items.append((pt, it))
 
-    # Sort results by ID or Title for deterministic output
-    results.sort(key=lambda x: (x['transaction_type'], x['house_type'], x['title']))
+    print(f"[✓] Retrieved {len(api_items)} total properties from WordPress REST API.")
 
-    # Step 3: Save to JSON and CSV
-    print("[3/3] Saving data to kensington_marrakech.json and kensington_marrakech.csv...")
+    # Step 3: Filter and parse Marrakech & surrounding domains
+    print("[3/4] Filtering and normalizing Marrakech luxury properties...")
+    records = []
+    seen_urls = set()
+
+    for pt, it in api_items:
+        link = it.get('link', '').rstrip('/')
+        if not link or link in seen_urls:
+            continue
+
+        if is_marrakech_or_surrounding(it):
+            seen_urls.add(link)
+            rec = parse_property_from_api(it, pt, card_map)
+            records.append(rec)
+
+    # Check if any URL from card_map was not covered by API
+    for url, c_info in card_map.items():
+        if url not in seen_urls:
+            # Fallback parse from card data
+            seen_urls.add(url)
+            ref = url.rstrip('/').split('/')[-1]
+            rec = {
+                'id': ref,
+                'platform': 'kensington',
+                'title': c_info.get('title') or ref.replace('-', ' ').title(),
+                'url': url + '/',
+                'transaction_type': 'Location' if any(k in url for k in ['/locations/', '/vacances/']) else 'Vente',
+                'house_type': normalize_house_type('', '', c_info.get('title', ''), c_info.get('excerpt', ''), url),
+                'city': 'Marrakech',
+                'quartier': extract_neighborhood(c_info.get('loc_card', ''), c_info.get('title', ''), c_info.get('excerpt', ''), url),
+                'price_raw': c_info.get('price_raw_card') or 'Prix sur demande',
+                'price_mad': None,
+                'surface_m2': None,
+                'bedrooms': None,
+                'bathrooms': None,
+                'features': [],
+                'description': c_info.get('excerpt', ''),
+                'main_image': c_info.get('img_card', ''),
+                'seller_type': 'Professionnel (Kensington Luxury)',
+                'scraped_at': str(date.today())
+            }
+            records.append(rec)
+
+    # Sort deterministically
+    records.sort(key=lambda x: (x['transaction_type'], x['house_type'], x['title']))
+
+    # Step 4: Save output to JSON and CSV
+    print(f"[4/4] Saving {len(records)} records to kensington_marrakech.json and kensington_marrakech.csv...")
     json_path = os.path.join(os.path.dirname(__file__), 'kensington_marrakech.json')
     csv_path = os.path.join(os.path.dirname(__file__), 'kensington_marrakech.csv')
 
     with open(json_path, 'w', encoding='utf-8') as f:
-        json.dump(results, f, ensure_ascii=False, indent=2)
+        json.dump(records, f, ensure_ascii=False, indent=2)
 
-    # For CSV, serialize features list to comma-separated string
     fieldnames = [
         'id', 'platform', 'title', 'url', 'transaction_type', 'house_type',
         'city', 'quartier', 'price_raw', 'price_mad', 'surface_m2',
         'bedrooms', 'bathrooms', 'features', 'description', 'main_image',
-        'images_count', 'seller_type', 'scraped_at'
+        'seller_type', 'scraped_at'
     ]
 
     with open(csv_path, 'w', encoding='utf-8-sig', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
-        for r in results:
+        for r in records:
             row = dict(r)
-            row['features'] = ", ".join(r['features']) if isinstance(r['features'], list) else r['features']
+            row['features'] = ", ".join(r['features']) if isinstance(r['features'], list) else str(r['features'])
             writer.writerow(row)
 
     duration = time.time() - start_time
-    json_size_mb = os.path.getsize(json_path) / (1024 * 1024)
-    csv_size_mb = os.path.getsize(csv_path) / (1024 * 1024)
+    json_size_bytes = os.path.getsize(json_path)
+    csv_size_bytes = os.path.getsize(csv_path)
+    json_size_mb = json_size_bytes / (1024 * 1024)
+    csv_size_mb = csv_size_bytes / (1024 * 1024)
+
+    # Verification statistics
+    with_img = sum(1 for r in records if r['main_image'])
+    with_price = sum(1 for r in records if r['price_mad'] is not None)
+    with_surf = sum(1 for r in records if r['surface_m2'] is not None)
+    with_beds = sum(1 for r in records if r['bedrooms'] is not None)
+    with_baths = sum(1 for r in records if r['bathrooms'] is not None)
 
     print("\n" + "=" * 70)
-    print("SCRAPING COMPLETED SUCCESSFULLY")
+    print("KENSINGTON LUXURY SCRAPING COMPLETED")
     print("=" * 70)
-    print(f"Total properties scraped: {len(results)}")
-    print(f"Total elapsed time:       {duration:.2f} seconds")
-    print(f"JSON Output:              {json_path} ({json_size_mb:.2f} MB)")
-    print(f"CSV Output:               {csv_path} ({csv_size_mb:.2f} MB)")
+    print(f"Total luxury properties scraped: {len(records)}")
+    print(f"Total execution time:            {duration:.2f} seconds")
+    print(f"JSON Output:                     {json_path}")
+    print(f"  - Size:                        {json_size_mb:.2f} MB ({json_size_bytes:,} bytes)")
+    print(f"CSV Output:                      {csv_path}")
+    print(f"  - Size:                        {csv_size_mb:.2f} MB ({csv_size_bytes:,} bytes)")
+    print("-" * 70)
+    print("DATA QUALITY METRICS:")
+    print(f"  - Properties with main_image (1 max): {with_img}/{len(records)} ({with_img/len(records)*100:.1f}%)")
+    print(f"  - Properties with numeric price MAD:  {with_price}/{len(records)} ({with_price/len(records)*100:.1f}%)")
+    print(f"  - Properties with surface m2:         {with_surf}/{len(records)} ({with_surf/len(records)*100:.1f}%)")
+    print(f"  - Properties with bedrooms:           {with_beds}/{len(records)} ({with_beds/len(records)*100:.1f}%)")
+    print(f"  - Properties with bathrooms:          {with_baths}/{len(records)} ({with_baths/len(records)*100:.1f}%)")
     print("=" * 70)
 
 if __name__ == '__main__':

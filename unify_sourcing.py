@@ -205,7 +205,7 @@ def export_unified(conn: sqlite3.Connection):
 
     # Master JSON
     with open("sourcing_all_listings.json", "w", encoding="utf-8") as f:
-        json.dump(rows, f, ensure_ascii=False, indent=2)
+        json.dump(rows, f, ensure_ascii=False)
     print(f"[✓] Exported: sourcing_all_listings.json ({len(rows):,} records)")
 
     # Master CSV

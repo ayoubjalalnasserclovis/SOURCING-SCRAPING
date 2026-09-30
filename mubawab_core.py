@@ -33,7 +33,7 @@ from scrapling import Selector
 # ---------------------------------------------------------------------------
 
 MARRAKECH_QUARTIERS = [
-    # Major districts
+    # Major districts & Surrounding zones
     "Guéliz", "Gueliz", "Hivernage", "Palmeraie", "Médina", "Medina",
     "Majorelle", "Agdal", "Targa", "Mhamid", "M'hamid", "Sidi Youssef Ben Ali",
     "Semlalia", "Samlalia", "Izdihar", "Daoudiate", "Massira", "Victor Hugo",
@@ -43,7 +43,8 @@ MARRAKECH_QUARTIERS = [
     "Sidi Ghanem", "Amerchich", "Annakhil", "Ennakhil", "Ain Mezouar",
     "Al Massar", "Socco Alto", "Golf City", "Prestigia", "Arsat Sbaia",
     "Menara", "Ménara", "Assif", "Riad Zitoun", "Bab Taghzout", "Mellah",
-    "Koutoubia", "Tamansourt", "Chrifia"
+    "Koutoubia", "Tamansourt", "Harbil", "Ourika", "Tahanaout", "Tassoultante",
+    "Tameslohte", "Aït Ourir", "Ait Ourir", "Amizmiz", "Agafay", "Chrifia"
 ]
 
 def normalize_quartier(q: str) -> str:
@@ -62,6 +63,16 @@ def normalize_quartier(q: str) -> str:
         return "Palmeraie / Annakhil"
     if ql in ["route de fès", "route de fes"]:
         return "Route de Fès"
+    if ql in ["harbil", "tamansourt"]:
+        return "Tamansourt"
+    if ql in ["tahanaout", "route de tahanaout"]:
+        return "Route de Tahanaout"
+    if ql in ["ourika", "route de l'ourika"]:
+        return "Route de l'Ourika"
+    if ql in ["ait ourir", "aït ourir"]:
+        return "Aït Ourir"
+    if ql in ["amizmiz", "route d'amizmiz"]:
+        return "Route d'Amizmiz"
     return q
 
 def detect_house_type(title: str, url: str, desc: str) -> str:
@@ -180,7 +191,7 @@ def save_listings_to_db(conn: sqlite3.Connection, listings: List[Dict[str, Any]]
 # HTML Parsing with Scrapling
 # ---------------------------------------------------------------------------
 
-def parse_page_listings(html_content: bytes, transaction_type: str = "Vente", city: str = "Marrakech") -> List[Dict[str, Any]]:
+def parse_page_listings(html_content: bytes, transaction_type: str = "Vente", city: str = "Marrakech", default_quartier: str = "Autre / Centre") -> List[Dict[str, Any]]:
     """Parse listing boxes using Scrapling Selector."""
     page = Selector(html_content)
     boxes = page.xpath("//*[contains(@class, 'listingBox')]")
@@ -243,6 +254,8 @@ def parse_page_listings(html_content: bytes, transaction_type: str = "Vente", ci
         # House Type & Quartier
         house_type = detect_house_type(title, url, description)
         quartier = detect_quartier(title, url, description)
+        if quartier == "Autre / Centre" and default_quartier != "Autre / Centre":
+            quartier = default_quartier
 
         # Images
         images = []

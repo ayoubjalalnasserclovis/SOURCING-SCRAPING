@@ -50,9 +50,32 @@ def fetch_property_urls():
     s = get_session()
     urls = set()
     
-    # 1. XML Sitemaps
-    for sitemap_name in ['property-sitemap1.xml', 'property-sitemap2.xml']:
-        sm_url = f"{BASE_URL}/{sitemap_name}"
+    # 1. XML Sitemaps from sitemap_index.xml
+    sitemap_targets = ['property-sitemap1.xml', 'property-sitemap2.xml', 'properties-sitemap1.xml']
+    try:
+        idx_resp = s.get(f"{BASE_URL}/sitemap_index.xml", timeout=20)
+        if idx_resp.status_code == 200:
+            root = ET.fromstring(idx_resp.content)
+            for elem in root.findall('.//{http://www.sitemaps.org/schemas/sitemap/0.9}loc'):
+                loc = elem.text.strip()
+                if 'property' in loc:
+                    sm_name = loc.split('/')[-1]
+                    if sm_name not in sitemap_targets:
+                        sitemap_targets.append(sm_name)
+    except Exception as e:
+        logger.warning(f"Error fetching sitemap_index: {e}")
+
+    archive_urls_to_crawl = [
+        f"{BASE_URL}/properties/",
+        f"{BASE_URL}/properties/for_sale/",
+        f"{BASE_URL}/property-type/riad-for-sale-marrakech/",
+        f"{BASE_URL}/property-type/guesthouse-for-sale-marrakech/",
+        f"{BASE_URL}/property-type/commercial-property-for-sale-marrakech/",
+        f"{BASE_URL}/property-type/luxury-property-for-sale-marrakech/",
+    ]
+
+    for sitemap_name in sitemap_targets:
+        sm_url = sitemap_name if sitemap_name.startswith('http') else f"{BASE_URL}/{sitemap_name}"
         try:
             logger.info(f"Fetching sitemap: {sm_url}")
             resp = s.get(sm_url, timeout=20)
@@ -60,33 +83,43 @@ def fetch_property_urls():
                 root = ET.fromstring(resp.content)
                 for elem in root.findall('.//{http://www.sitemaps.org/schemas/sitemap/0.9}loc'):
                     u = elem.text.strip()
-                    if '/property/' in u:
+                    if '/property/' in u and u.strip('/') != f"{BASE_URL}/property":
                         urls.add(u)
+                    elif '/properties/' in u and u not in archive_urls_to_crawl:
+                        archive_urls_to_crawl.append(u)
             else:
                 logger.warning(f"Sitemap {sm_url} returned status {resp.status_code}")
         except Exception as e:
             logger.error(f"Error fetching sitemap {sm_url}: {e}")
 
-    logger.info(f"Collected {len(urls)} URLs from sitemaps.")
+    logger.info(f"Collected {len(urls)} property URLs from sitemaps.")
 
     # 2. Archive pagination check
-    for page_num in range(1, 25):
-        page_url = f"{BASE_URL}/properties/for_sale/?page_num={page_num}"
-        try:
-            resp = s.get(page_url, timeout=20)
-            if resp.status_code != 200:
+    for base_archive in archive_urls_to_crawl:
+        for page_num in range(1, 30):
+            sep = '&' if '?' in base_archive else '?'
+            page_url = f"{base_archive.rstrip('/')}/{sep}page_num={page_num}" if page_num > 1 else base_archive
+            try:
+                resp = s.get(page_url, timeout=20)
+                if resp.status_code != 200:
+                    break
+                sel = Selector(resp.text)
+                links = [a.attrib['href'] for a in sel.css('a') if '/property/' in a.attrib.get('href', '')]
+                valid_links = [l for l in links if l.strip('/') != f"{BASE_URL}/property"]
+                if not valid_links:
+                    break
+                new_on_page = 0
+                for l in valid_links:
+                    if not l.startswith('http'):
+                        l = f"{BASE_URL}{l}"
+                    if l not in urls:
+                        urls.add(l)
+                        new_on_page += 1
+                if new_on_page == 0 and page_num > 1:
+                    break
+            except Exception as e:
+                logger.warning(f"Error on archive page {page_url}: {e}")
                 break
-            sel = Selector(resp.text)
-            links = [a.attrib['href'] for a in sel.css('a') if '/property/' in a.attrib.get('href', '')]
-            if not links:
-                break
-            for l in links:
-                if not l.startswith('http'):
-                    l = f"{BASE_URL}{l}"
-                urls.add(l)
-        except Exception as e:
-            logger.warning(f"Error on pagination page {page_num}: {e}")
-            break
 
     logger.info(f"Total unique property URLs gathered: {len(urls)}")
     return sorted(list(urls))
@@ -382,7 +415,7 @@ def parse_property_page(html, url):
     
     # 8. City and Quartier
     quartier = detect_quartier(loc_raw, title, description, url)
-    city = 'Essaouira' if quartier == 'Essaouira' or 'essaouira' in url.lower() else 'Marrakech'
+    city = 'Marrakech'
     
     # 9. Features
     features = extract_features(sel, title, description)
@@ -405,7 +438,7 @@ def parse_property_page(html, url):
     images_count = len(images)
     
     # 11. Transaction type
-    transaction_type = 'Location' if 'for_rent' in url.lower() or 'location' in url.lower() else 'Vente'
+    transaction_type = 'Location' if '/for_rent/' in url.lower() or '/rent/' in url.lower() else 'Vente'
 
     record = {
         'id': prop_id,

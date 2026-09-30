@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-Production scraper for Avito.ma real estate listings in Marrakech.
-Fetches listings using curl_cffi (impersonate='chrome120') and Scrapling Selector.
-Extracts rich listing data from __NEXT_DATA__ and CSS selectors, standardizes
-fields according to target schema, and saves to JSON and CSV formats.
+Production scraper for Avito.ma Marrakech real estate listings.
+Integrality scraper: scrapes all categories and all general real estate listings
+in Marrakech using curl_cffi and Scrapling's Selector with high concurrency.
+Constraint: Exactly ONE photo max per home scraped (stored in main_image as a string URL).
+Saves complete output to avito_marrakech.json and avito_marrakech.csv.
 """
 
 import sys
@@ -13,14 +14,16 @@ import json
 import csv
 import os
 import time
+import math
+import threading
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from curl_cffi import requests
 from scrapling import Selector
 
 # Ensure UTF-8 output
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
-BASE_URL = "https://www.avito.ma/fr/marrakech/immobilier"
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
@@ -30,6 +33,16 @@ HEADERS = {
     "Sec-Ch-Ua-Platform": '"Windows"',
 }
 
+TARGET_CATEGORIES = [
+    ("Appartements", "https://www.avito.ma/fr/marrakech/appartements"),
+    ("Maisons et Villas", "https://www.avito.ma/fr/marrakech/maisons_et_villas"),
+    ("Terrains et Fermes", "https://www.avito.ma/fr/marrakech/terrains_et_fermes"),
+    ("Riads", "https://www.avito.ma/fr/marrakech/riads"),
+    ("Commerces et Locaux", "https://www.avito.ma/fr/marrakech/commerces_et_locaux_industriels"),
+    ("Bureaux et Plateaux", "https://www.avito.ma/fr/marrakech/bureaux_et_plateaux"),
+    ("Immobilier Général", "https://www.avito.ma/fr/marrakech/immobilier"),
+]
+
 KNOWN_QUARTIERS = [
     "Guéliz", "Hivernage", "Palmeraie", "Médina", "Targa", "Agdal",
     "Majorelle", "M'Hamid", "Mhamid", "Daoudiate", "Sidi Youssef Ben Ali",
@@ -38,7 +51,9 @@ KNOWN_QUARTIERS = [
     "Route de Tahanaoute", "Chrifia", "Amerchich", "Victor Hugo",
     "Hay Izdihar", "Hay Riad", "Al Fadel", "Bab Doukkala", "Ain Mezouar",
     "Azzouzia", "Mabrouka", "Hay Charaf", "Es Saada", "Hay Andalous",
-    "Centre Ville", "Av Mohammed VI", "Sidi Ghanem", "Camp Ghoul"
+    "Centre Ville", "Av Mohammed VI", "Sidi Ghanem", "Camp Ghoul",
+    "Prestigia", "Amelkis", "Al Maaden", "Sidi Abbad", "Kasbah",
+    "Mellah", "Bab Atlas", "Samanah", "Golf City"
 ]
 
 FEATURE_KEYWORDS = [
@@ -58,11 +73,11 @@ FEATURE_KEYWORDS = [
 ]
 
 def classify_house_type(title: str, cat_name: str, desc: str) -> str:
-    """Classifies property into standardized house_type with high precision."""
+    """Classifies property into standardized house_type."""
     title_lower = title.lower()
     cat_lower = cat_name.lower()
     
-    # 1. First priority: Title (most specific intent)
+    # 1. First priority: Title (most specific)
     if re.search(r"\briad\b", title_lower):
         return "Riad"
     if re.search(r"\bstudio\b", title_lower):
@@ -77,7 +92,7 @@ def classify_house_type(title: str, cat_name: str, desc: str) -> str:
         return "Commerce"
     if re.search(r"\b(?:villa|villas)\b", title_lower):
         return "Villa"
-    if re.search(r"\b(?:maison|maisons)\b", title_lower):
+    if re.search(r"\b(?:maison|maisons|douiria)\b", title_lower):
         return "Maison"
     if re.search(r"\b(?:appartement|appartements|appart)\b", title_lower):
         return "Appartement"
@@ -98,7 +113,7 @@ def classify_house_type(title: str, cat_name: str, desc: str) -> str:
     if "appartement" in cat_lower:
         return "Appartement"
         
-    # 3. Third priority: Description with strict word boundaries
+    # 3. Third priority: Description
     desc_lower = desc.lower()
     if re.search(r"\briad\b", desc_lower):
         return "Riad"
@@ -121,22 +136,30 @@ def classify_house_type(title: str, cat_name: str, desc: str) -> str:
         
     return "Appartement"
 
-def extract_transaction_type(ad_type_obj: dict, cat_name: str, title: str) -> str:
+def extract_transaction_type(ad_type_obj: dict, cat_info: dict, title: str) -> str:
     """Classifies transaction_type as 'Vente' or 'Location'."""
     key = (ad_type_obj.get("key") or "").upper()
     if key == "SELL":
         return "Vente"
-    if key in ("LET", "VAC_RENT"):
+    if key in ("LET", "VAC_RENT", "CO_RENT"):
         return "Location"
     
+    parent_id = str((cat_info.get("parent") or {}).get("id") or "")
+    cat_id = str(cat_info.get("id") or "")
+    if parent_id == "1200" or cat_id == "1200":
+        return "Vente"
+    if parent_id in ("1300", "1500", "1400") or cat_id in ("1300", "1500", "1400"):
+        return "Location"
+
     label = (ad_type_obj.get("label") or "").lower()
     if "vente" in label or "vendre" in label:
         return "Vente"
-    if "louer" in label or "location" in label or "vacance" in label:
+    if "louer" in label or "location" in label or "vacance" in label or "colocation" in label:
         return "Location"
         
+    cat_name = cat_info.get("name") or cat_info.get("formatted") or ""
     text = f"{cat_name} {title}".lower()
-    if any(k in text for k in ["louer", "location", "vacance"]):
+    if any(k in text for k in ["louer", "location", "vacance", "colocation", "nuitée"]):
         return "Location"
     return "Vente"
 
@@ -150,14 +173,10 @@ def extract_quartier(loc: str, url: str, title: str, desc: str) -> str:
             loc_part = loc.strip()
             
     if loc_part and loc_part.lower() not in ("marrakech", "autre secteur", "autre"):
-        # Normalize spelling if needed
-        if loc_part.lower() in ("gueliz", "guéliz"):
-            return "Guéliz"
-        if loc_part.lower() in ("medina", "médina"):
-            return "Médina"
+        if loc_part.lower() in ("gueliz", "guéliz"): return "Guéliz"
+        if loc_part.lower() in ("medina", "médina"): return "Médina"
         return loc_part
         
-    # Check URL slug: e.g. https://www.avito.ma/fr/agdal/appartements/...
     m = re.search(r"avito\.ma/fr/([^/]+)/", url)
     if m:
         slug = m.group(1).replace("_", " ").title()
@@ -166,7 +185,6 @@ def extract_quartier(loc: str, url: str, title: str, desc: str) -> str:
             if slug.lower() in ("medina", "médina"): return "Médina"
             return slug
             
-    # Check title / desc against known Marrakech quartiers
     text = f"{title} {desc}".lower()
     for kq in KNOWN_QUARTIERS:
         if kq.lower() in text:
@@ -195,12 +213,13 @@ def extract_features(text: str, params_extra: list = None) -> str:
     return ", ".join(feats)
 
 def parse_ad_data(ad: dict, scraped_date: str) -> dict:
-    """Parses a single Avito ad dictionary into standardized format."""
-    # Exclude non-standard ads (e.g. Immoneuf integrations) to ensure 100% genuine Avito listings
+    """
+    Parses an Avito ad dictionary into standardized schema.
+    CRITICAL CONSTRAINT: Exactly ONE photo max stored in main_image as a single string URL.
+    """
     if ad.get("isNc"):
         return None
         
-    # IDs
     ad_id = str(ad.get("listId") or ad.get("id") or "")
     if not ad_id:
         return None
@@ -212,23 +231,20 @@ def parse_ad_data(ad: dict, scraped_date: str) -> dict:
         
     desc = (ad.get("description") or "").strip()
     
-    # Category & Ad Type
     cat_info = ad.get("category") or {}
     cat_name = cat_info.get("name") or cat_info.get("formatted") or ""
     ad_type_info = ad.get("adType") or {}
     
-    transaction_type = extract_transaction_type(ad_type_info, cat_name, title)
+    transaction_type = extract_transaction_type(ad_type_info, cat_info, title)
     house_type = classify_house_type(title, cat_name, desc)
     
-    # Location
     loc = ad.get("location") or ""
     quartier = extract_quartier(loc, url, title, desc)
     
-    # Price
     price_info = ad.get("price") or {}
     price_val = price_info.get("value")
     price_mad = None
-    price_raw = None
+    price_raw = ""
     if price_val is not None:
         try:
             price_mad = int(float(price_val))
@@ -237,21 +253,21 @@ def parse_ad_data(ad: dict, scraped_date: str) -> dict:
             pass
             
     if price_mad is None:
-        # Try extracting from text
         m = re.search(r"(\d[\d\s.,]{2,})\s*(?:dh|dhs|mad)", f"{title} {desc}", re.IGNORECASE)
         if m:
             raw_digits = re.sub(r"[^\d]", "", m.group(1))
             if raw_digits:
-                price_mad = int(raw_digits)
-                price_raw = f"{price_mad:,} DH".replace(",", " ")
+                try:
+                    price_mad = int(raw_digits)
+                    price_raw = f"{price_mad:,} DH".replace(",", " ")
+                except ValueError:
+                    pass
 
-    # Parameters (surface, rooms, bathrooms)
     params_sec = (ad.get("params") or {}).get("secondary") or []
     param_dict = {}
     for p in params_sec:
         param_dict[p.get("key")] = p.get("value")
         
-    # Surface
     surface_m2 = None
     if "size" in param_dict and param_dict["size"] is not None:
         try:
@@ -261,9 +277,11 @@ def parse_ad_data(ad: dict, scraped_date: str) -> dict:
     if surface_m2 is None:
         m = re.search(r"(\d+)\s*(?:m²|m2|mètres carrés|metres carres)", f"{title} {desc}", re.IGNORECASE)
         if m:
-            surface_m2 = int(m.group(1))
+            try:
+                surface_m2 = int(m.group(1))
+            except ValueError:
+                pass
             
-    # Bedrooms
     bedrooms = None
     for k in ("rooms", "capacity_rooms"):
         if k in param_dict and param_dict[k] is not None:
@@ -275,9 +293,11 @@ def parse_ad_data(ad: dict, scraped_date: str) -> dict:
     if bedrooms is None:
         m = re.search(r"(\d+)\s*(?:chambres?|chb|pièces?|pieces?)", f"{title} {desc}", re.IGNORECASE)
         if m:
-            bedrooms = int(m.group(1))
+            try:
+                bedrooms = int(m.group(1))
+            except ValueError:
+                pass
             
-    # Bathrooms
     bathrooms = None
     if "bathrooms" in param_dict and param_dict["bathrooms"] is not None:
         try:
@@ -287,19 +307,28 @@ def parse_ad_data(ad: dict, scraped_date: str) -> dict:
     if bathrooms is None:
         m = re.search(r"(\d+)\s*(?:salles?\s+de\s+bains?|sdbs?|sdb)", f"{title} {desc}", re.IGNORECASE)
         if m:
-            bathrooms = int(m.group(1))
+            try:
+                bathrooms = int(m.group(1))
+            except ValueError:
+                pass
 
-    # Features
     features = extract_features(f"{title} {desc}")
     
-    # Images
+    # ONE PHOTO MAX CONSTRAINT:
+    # Strictly store main_image as a single string URL
     main_image = ad.get("defaultImage") or ""
     images_list = ad.get("images") or []
     images_count = len(images_list)
+    
+    # If defaultImage is missing or a generic placeholder, use first real image if present
+    if (not main_image or "ad_pl_cat_" in main_image) and images_list:
+        main_image = images_list[0]
+        
+    if not isinstance(main_image, str):
+        main_image = str(main_image) if main_image else ""
     if images_count == 0 and main_image:
         images_count = 1
         
-    # Seller type
     seller_info = ad.get("seller") or {}
     seller_type_raw = (seller_info.get("type") or "").upper()
     if seller_type_raw == "STORE" or ad.get("isShop"):
@@ -316,7 +345,7 @@ def parse_ad_data(ad: dict, scraped_date: str) -> dict:
         "house_type": house_type,
         "city": "Marrakech",
         "quartier": quartier,
-        "price_raw": price_raw or "",
+        "price_raw": price_raw,
         "price_mad": price_mad,
         "surface_m2": surface_m2,
         "bedrooms": bedrooms,
@@ -329,123 +358,213 @@ def parse_ad_data(ad: dict, scraped_date: str) -> dict:
         "scraped_at": scraped_date,
     }
 
-def scrape_avito_marrakech(target_count: int = 250, max_pages: int = 10):
-    """Scrapes Avito.ma Marrakech real estate listings until target_count reached."""
-    all_listings = []
-    seen_ids = set()
-    scraped_date = datetime.now().strftime("%Y-%m-%d")
+# Thread-local storage for HTTP/2 persistent sessions
+_thread_local = threading.local()
+
+def get_session():
+    if not hasattr(_thread_local, "session"):
+        _thread_local.session = requests.Session(impersonate="chrome120")
+    return _thread_local.session
+
+def fetch_page_ads(url: str, page: int, retries: int = 3):
+    """Fetches a single page and returns the parsed raw ads list."""
+    page_url = f"{url}?o={page}" if page > 1 else url
     
-    print(f"Starting Avito Marrakech scraper at {datetime.now().isoformat()}...")
-    print(f"Target listings count: {target_count} (max pages: {max_pages})")
-    
-    page = 1
-    while page <= max_pages and len(all_listings) < target_count:
-        url = f"{BASE_URL}?o={page}" if page > 1 else BASE_URL
-        print(f"\n[Page {page}] Fetching {url}...")
-        
+    for attempt in range(retries):
+        s = get_session()
         try:
-            resp = requests.get(url, impersonate="chrome120", headers=HEADERS, timeout=15)
-            if resp.status_code != 200:
-                print(f"[Page {page}] Failed with HTTP status {resp.status_code}")
-                page += 1
-                time.sleep(1)
+            resp = s.get(page_url, headers=HEADERS, timeout=15)
+            if resp.status_code == 200:
+                raw = None
+                try:
+                    sel = Selector(resp.text)
+                    raw = sel.css("script#__NEXT_DATA__::text").get()
+                except Exception:
+                    pass
+                if not raw:
+                    m = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', resp.text, re.DOTALL)
+                    if m:
+                        raw = m.group(1)
+                        
+                if raw:
+                    data = json.loads(raw)
+                    comp = data.get("props", {}).get("pageProps", {}).get("componentProps", {})
+                    ads_data = comp.get("ads", {})
+                    ad_list = ads_data.get("ads", [])
+                    return page, ad_list
+            elif resp.status_code == 429:
+                time.sleep(2 * (attempt + 1))
                 continue
-                
-            sel = Selector(resp.text)
-            next_data_elem = sel.css("script#__NEXT_DATA__::text").get()
+            elif resp.status_code == 404:
+                return page, []
+        except Exception:
+            # Recreate session on network error
+            try:
+                _thread_local.session = requests.Session(impersonate="chrome120")
+            except Exception:
+                pass
+            time.sleep(0.5 * (attempt + 1))
             
-            if not next_data_elem:
-                print(f"[Page {page}] No __NEXT_DATA__ element found.")
-                page += 1
-                continue
-                
-            data = json.loads(next_data_elem)
-            comp_props = data.get("props", {}).get("pageProps", {}).get("componentProps", {})
-            ads_data = comp_props.get("ads", {})
-            ad_list = ads_data.get("ads", [])
-            
-            print(f"[Page {page}] Received {len(ad_list)} raw ads in payload.")
-            
-            page_extracted = 0
-            for raw_ad in ad_list:
-                parsed = parse_ad_data(raw_ad, scraped_date)
-                if not parsed:
-                    continue
-                if parsed["id"] in seen_ids:
-                    continue
-                    
-                seen_ids.add(parsed["id"])
-                all_listings.append(parsed)
-                page_extracted += 1
-                
-                if len(all_listings) >= target_count:
-                    break
-                    
-            print(f"[Page {page}] Extracted {page_extracted} new unique listings. Total so far: {len(all_listings)}")
-            
-        except Exception as e:
-            print(f"[Page {page}] Error during scraping: {e}")
-            
-        page += 1
-        time.sleep(1.2)  # Polite crawl delay
-        
-    print(f"\nScraping complete! Total unique listings captured: {len(all_listings)}")
-    return all_listings
+    return page, []
 
 def save_outputs(listings: list, json_path: str, csv_path: str):
-    """Saves listings to JSON and CSV formats."""
-    # 1. JSON
-    with open(json_path, "w", encoding="utf-8") as f:
+    """Atomically saves listings to JSON and CSV formats."""
+    # Write JSON
+    tmp_json = f"{json_path}.tmp"
+    with open(tmp_json, "w", encoding="utf-8") as f:
         json.dump(listings, f, ensure_ascii=False, indent=2)
-    print(f"Saved JSON to: {json_path}")
+    if os.path.exists(json_path):
+        try: os.remove(json_path)
+        except OSError: pass
+    os.replace(tmp_json, json_path)
     
-    # 2. CSV
+    # Write CSV
+    tmp_csv = f"{csv_path}.tmp"
     fieldnames = [
         "id", "platform", "title", "url", "transaction_type", "house_type",
         "city", "quartier", "price_raw", "price_mad", "surface_m2",
         "bedrooms", "bathrooms", "features", "description",
         "main_image", "images_count", "seller_type", "scraped_at"
     ]
-    with open(csv_path, "w", encoding="utf-8", newline="") as f:
+    with open(tmp_csv, "w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         for item in listings:
             writer.writerow(item)
-    print(f"Saved CSV to: {csv_path}")
+    if os.path.exists(csv_path):
+        try: os.remove(csv_path)
+        except OSError: pass
+    os.replace(tmp_csv, csv_path)
 
-def verify_outputs(json_path: str, csv_path: str):
-    """Verifies file existence, sizes, and record count."""
-    print("\n--- Output Verification ---")
-    for path, name in [(json_path, "JSON"), (csv_path, "CSV")]:
-        if not os.path.exists(path):
-            print(f"ERROR: {name} file does not exist at {path}!")
-            return False
-        size_bytes = os.path.getsize(path)
-        print(f"{name} file: {path}")
-        print(f"  Size: {size_bytes / 1024:.2f} KB ({size_bytes} bytes)")
+def scrape_full_avito_marrakech(max_workers: int = 12):
+    """
+    Main integrality scraper for Avito Marrakech.
+    Systematically processes all categories and general listings.
+    """
+    start_time = time.time()
+    scraped_date = datetime.now().strftime("%Y-%m-%d")
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    json_path = os.path.join(current_dir, "avito_marrakech.json")
+    csv_path = os.path.join(current_dir, "avito_marrakech.csv")
+    
+    print(f"=== Starting Avito.ma Marrakech Integrality Scraper ===")
+    print(f"Start time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Concurrency: {max_workers} worker threads")
+    
+    all_listings = []
+    seen_ids = set()
+    lock = threading.Lock()
+    
+    # If existing data file exists, load IDs to avoid duplicate work if restarting
+    if os.path.exists(json_path):
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                existing = json.load(f)
+                for item in existing:
+                    if item.get("id"):
+                        seen_ids.add(str(item["id"]))
+                        all_listings.append(item)
+            print(f"Loaded {len(all_listings)} existing listings into memory.")
+        except Exception as e:
+            print(f"Could not load existing file: {e}")
+            all_listings = []
+            seen_ids = set()
+
+    # Iterate through categories
+    for cat_name, cat_url in TARGET_CATEGORIES:
+        print(f"\n>>> Checking Category: {cat_name} ({cat_url})")
+        # Step 1: Probe page 1 to get total listing count
+        s = requests.Session(impersonate="chrome120")
+        try:
+            resp = s.get(cat_url, headers=HEADERS, timeout=15)
+            if resp.status_code != 200:
+                print(f"Failed to access {cat_url}, status: {resp.status_code}")
+                continue
+            sel = Selector(resp.text)
+            raw = sel.css("script#__NEXT_DATA__::text").get()
+            if not raw:
+                print(f"No __NEXT_DATA__ found for {cat_url}")
+                continue
+            data = json.loads(raw)
+            comp = data.get("props", {}).get("pageProps", {}).get("componentProps", {})
+            total_ads = comp.get("ads", {}).get("totalListingAds") or comp.get("facetedSearchResponse", {}).get("count", {}).get("total")
+            if not total_ads:
+                total_ads = 0
+            total_ads = int(total_ads)
+            total_pages = math.ceil(total_ads / 35) if total_ads > 0 else 1
+            print(f"[{cat_name}] Total ads indexed: {total_ads} across ~{total_pages} pages.")
+        except Exception as e:
+            print(f"Error checking category {cat_name}: {e}")
+            continue
+
+        if total_pages == 0:
+            continue
+
+        # Step 2: Fetch all pages concurrently with ThreadPoolExecutor
+        print(f"[{cat_name}] Scraping pages 1 to {total_pages} with {max_workers} threads...")
+        pages = list(range(1, total_pages + 1))
         
-    with open(json_path, "r", encoding="utf-8") as f:
-        json_records = json.load(f)
-    print(f"JSON Record count: {len(json_records)}")
+        cat_extracted = 0
+        pages_processed = 0
+        consecutive_empty = 0
+
+        # Process in batches of 100 pages for memory efficiency and checkpointing
+        batch_size = 100
+        for i in range(0, len(pages), batch_size):
+            batch = pages[i:i + batch_size]
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {executor.submit(fetch_page_ads, cat_url, p): p for p in batch}
+                for fut in as_completed(futures):
+                    p = futures[fut]
+                    try:
+                        _, raw_ads = fut.result()
+                    except Exception as e:
+                        raw_ads = []
+                    
+                    pages_processed += 1
+                    if not raw_ads:
+                        consecutive_empty += 1
+                        if consecutive_empty > 15:
+                            # 15 consecutive empty pages indicates end of listings
+                            pass
+                        continue
+                    else:
+                        consecutive_empty = 0
+
+                    with lock:
+                        for ad in raw_ads:
+                            parsed = parse_ad_data(ad, scraped_date)
+                            if parsed and parsed["id"] not in seen_ids:
+                                seen_ids.add(parsed["id"])
+                                all_listings.append(parsed)
+                                cat_extracted += 1
+
+            print(f"  [{cat_name}] Progress: {pages_processed}/{total_pages} pages done | Category new: +{cat_extracted} | Grand total: {len(all_listings)}")
+            
+            # Periodic checkpoint save
+            with lock:
+                save_outputs(all_listings, json_path, csv_path)
+
+        print(f"[{cat_name}] Completed! Extracted {cat_extracted} unique listings from this category.")
+
+    # Final save and verification
+    print("\n=== Finalizing Output Files ===")
+    save_outputs(all_listings, json_path, csv_path)
     
-    with open(csv_path, "r", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        csv_records = list(reader)
-    print(f"CSV Record count: {len(csv_records)}")
+    elapsed = time.time() - start_time
+    json_size = os.path.getsize(json_path)
+    csv_size = os.path.getsize(csv_path)
     
-    if len(json_records) == len(csv_records) and len(json_records) >= 150:
-        print(f"SUCCESS: Both files match with {len(json_records)} verified records (>= 150 target).")
-        return True
-    else:
-        print(f"WARNING: Record counts or target criteria mismatch.")
-        return False
+    print(f"\n=======================================================")
+    print(f"SCRAPING RUN COMPLETE in {elapsed / 60:.2f} minutes ({elapsed:.1f}s)")
+    print(f"Total Unique Listings Scraped: {len(all_listings):,}")
+    print(f"JSON File: {json_path}")
+    print(f"  Size: {json_size / (1024 * 1024):.2f} MB ({json_size:,} bytes)")
+    print(f"CSV File:  {csv_path}")
+    print(f"  Size: {csv_size / (1024 * 1024):.2f} MB ({csv_size:,} bytes)")
+    print(f"=======================================================")
+    
+    return len(all_listings), json_size, csv_size
 
 if __name__ == "__main__":
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    json_output = os.path.join(current_dir, "avito_marrakech.json")
-    csv_output = os.path.join(current_dir, "avito_marrakech.csv")
-    
-    # Target 250 listings (well within the 150-300 requirement)
-    listings = scrape_avito_marrakech(target_count=250, max_pages=10)
-    save_outputs(listings, json_output, csv_output)
-    verify_outputs(json_output, csv_output)
+    scrape_full_avito_marrakech(max_workers=12)

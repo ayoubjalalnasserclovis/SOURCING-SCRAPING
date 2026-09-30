@@ -1,163 +1,137 @@
 # 🏰 Marrakech Multi-Platform Real Estate Sourcing & Intelligence (`SOURCING-SCRAPING`)
 
-> **Comprehensive multi-source real estate scraping, data unification, and market exploration platform for Marrakech, Morocco.**  
-> Powered by [Scrapling](https://github.com/d4vinci/Scrapling), `curl_cffi` (browser fingerprint impersonation), SQLite, and modern vanilla web technologies.
+> **Comprehensive multi-source real estate scraping, data unification, and market exploration platform for Marrakech and surrounding regions.**  
+> Powered by [Scrapling](https://github.com/d4vinci/Scrapling), `curl_cffi` (Chrome TLS fingerprint impersonation), SQLite, and modern vanilla web technologies.
 
 ---
 
-## 🌟 Executive Summary
+## 🌟 Executive Summary & Full Inventory Coverage
 
-This repository aggregates and normalizes property listings across **5 distinct market ecosystems** in Marrakech to provide complete coverage of the local real estate landscape:
+This platform crawls the **integrality** of Marrakech property listings across **5 distinct market ecosystems**, capturing all active homes, apartments, luxury villas, riads, and land plots in and near Marrakech:
 
-| Source Platform | Market Segment | Captured Volume | Primary Asset Classes |
+| Source Platform | Market Segment Covered | Total Active Volume | Primary Asset Classes |
 | :--- | :--- | :--- | :--- |
-| **Mubawab.ma** | Moroccan Market Benchmark | **3,054 listings** | Appartements, Villas, Terrains, Bureaux |
-| **Kensington Morocco** | Ultra-Luxury & Christie's Affiliate | **798 listings** | Palatial Villas, Golf Estates, Luxury Riads |
-| **Avito.ma** | Direct Owners & Peer-to-Peer | **250 listings** | High-yield apartments, Studios, Townhouses |
-| **Sarouty.ma / Barnes** | Professional Agencies & Prestige | **231 listings** | Agency residences, Modern developments |
-| **Bosworth Property** | Authentic Medina & Historic Riads | **179 listings** | Riads, Maisons d'Hôtes, Historic Palaces |
-| **TOTAL UNIFIED** | **All 5 Platforms** | **4,508 listings** | **Complete Marrakech Real Estate Inventory** |
+| **Avito.ma** | Direct Owners, P2P & Volume Sales/Rentals | **33,743 listings** | Appartements, Maisons, Terrains, Studios |
+| **Mubawab.ma** | Moroccan Commercial Benchmark | **11,450 listings** | Villas, Appartements, Riads, Commerces |
+| **Kensington Morocco** | Ultra-Luxury & Christie's Affiliate | **882 listings** | Palatial Villas, Golf Domains, Riads |
+| **Sarouty / Barnes / Selektimmo** | Professional Agencies & Prime Developments | **705 listings** | Agency residences, Modern developments |
+| **Bosworth Property** | Authentic Medina & Historic Riads | **180 listings** | Riads, Maisons d'Hôtes, Historic Palaces |
+| **TOTAL UNIFIED** | **100% Marrakech Market Coverage** | **46,954 listings** | **Complete Regional Real Estate Inventory** |
+
+> [!NOTE]
+> **Strict Storage Constraint**: Exactly **one photo max** (`main_image`) is retained per listing across all 46,954 properties to guarantee ultra-fast loading, lightweight payloads, and zero media bloat.
 
 ---
 
-## 📊 Unified Market Breakdown (4,508 Listings)
+## 📊 Market Breakdown (46,954 Unified Listings)
 
 ### 🏷️ Breakdown by Asset / House Type
 
-| House Type | Total Listings | Average Price (MAD) | Key Segments Covered |
+| House Type | Total Listings | % of Market | Key Regions & Sub-markets |
 | :--- | :--- | :--- | :--- |
-| **Villa / Domaine** | **1,595** | 6,850,000 DH | Palmeraie, Amelkis, Al Maaden, Route de l'Ourika |
-| **Appartement** | **1,524** | 780,000 DH | Guéliz, Hivernage, Majorelle, Agdal |
-| **Riad / Maison d'Hôtes** | **445** | 4,250,000 DH | Médina, Kasbah, Mouassine, Bab Doukkala |
-| **Studio** | **148** | 520,000 DH | Centre-ville, Guéliz, Victor Hugo |
-| **Terrain** | **238** | 7,120,000 DH | Route de Fès, Route de Tahanaout, Palmeraie |
-| **Duplex / Penthouse** | **112** | 1,890,000 DH | Hivernage, Guéliz, Targa |
-| **Commerce & Bureau** | **198** | 940,000 DH | Guéliz, Avenue Mohammed V, Allal Al Fassi |
-| **Autre / Maison** | **248** | 2,150,000 DH | Targa, Semlalia, M'hamid |
+| **Appartement** | **25,372** | 54.0% | Guéliz, Hivernage, Centre Ville, Agdal, Victor Hugo, Majorelle |
+| **Villa & Domaine** | **7,820** | 16.7% | Palmeraie, Amelkis, Al Maaden, Route de l'Ourika, Route d'Amizmiz |
+| **Terrain & Ferme** | **3,893** | 8.3% | Route de Tahanaout, Route de Casablanca, Route de Fès, Tamansourt |
+| **Riad & Maison d'Hôtes** | **2,217** | 4.7% | Médina, Kasbah, Mouassine, Bab Doukkala, Riad Laarous |
+| **Maison** | **1,784** | 3.8% | Targa, Semlalia, M'hamid, Daoudiate |
+| **Commerce & Local** | **1,841** | 3.9% | Guéliz, Av. Mohammed V, Allal El Fassi, Massira |
+| **Studio** | **1,551** | 3.3% | Guéliz, Centre Ville, Majorelle, Semlalia |
+| **Bureau & Plateau** | **1,010** | 2.2% | Guéliz, Hivernage, Avenue Mohammed VI |
+| **Duplex & Penthouse** | **829** | 1.8% | Hivernage, Guéliz, Prestigia, Targa |
+| **Autre / Résidence** | **637** | 1.4% | Périphérie & Communes satellites |
 
 ---
 
-## 🗄️ Dataset Artifacts & Formats
+## 📍 Geographic & Neighborhood Coverage (Top Zones)
 
-All datasets are structured with normalized schemas, validated numbers (`price_mad`, `surface_m2`, `bedrooms`, `bathrooms`), cleaned neighborhood tags, high-resolution media URLs, and direct links to original listings.
+- **Guéliz & Centre Ville:** 10,200+ listings
+- **Route de l'Ourika & Vallée:** 2,350+ listings
+- **M'Hamid & Aéroport:** 2,050+ listings
+- **Médina & Kasbah:** 1,600+ listings
+- **Route de Casablanca:** 1,630+ listings
+- **Targa & Massira:** 1,550+ listings
+- **Agdal & Prestigia:** 1,400+ listings
+- **Palmeraie & Environs:** 1,100+ listings
+- **Hivernage:** 850+ listings
+- **Route de Fès & Route d'Amizmiz:** 1,600+ listings
+
+---
+
+## 🗄️ Dataset Formats & Deliverables
+
+All datasets are normalized with validated coordinates, types, dirham prices (`price_mad`), surface in square meters, and direct links to original listing pages.
 
 ### 🌐 Unified Master Datasets
 - **SQLite Database**: `sourcing_listings.db` (Indexed on `platform`, `house_type`, `quartier`, `price_mad`, `surface_m2`)
-- **JSON Full Export**: `sourcing_all_listings.json` (4,508 records, ~6.3 MB)
-- **CSV Full Export**: `sourcing_all_listings.csv` (4,508 records, ~4.5 MB)
+- **JSON Master Export**: `sourcing_all_listings.json` (46,954 records, 46.3 MB)
+- **CSV Master Export**: `sourcing_all_listings.csv` (46,954 records, 33.3 MB)
 
-### 📁 Platform-Specific Datasets
-- **Avito.ma**: `avito_marrakech.json` & `avito_marrakech.csv` (250 records)
-- **Kensington Luxury**: `kensington_marrakech.json` & `kensington_marrakech.csv` (798 records)
-- **Bosworth Property**: `bosworth_marrakech.json` & `bosworth_marrakech.csv` (179 records)
-- **Sarouty / Barnes**: `sarouty_marrakech.json` & `sarouty_marrakech.csv` (231 records)
-- **Mubawab.ma**: `mubawab_complete_listings.json` & `mubawab_complete_listings.csv` (3,054 records)
+### 📁 Individual Platform Datasets
+- **Avito.ma**: `avito_marrakech.json` (33.5 MB) & `avito_marrakech.csv` (20.7 MB) — 33,743 properties
+- **Mubawab.ma**: `mubawab_complete_listings.json` (13.8 MB) & `mubawab_complete_listings.csv` (9.5 MB) — 11,450 properties
+- **Kensington Luxury**: `kensington_marrakech.json` (2.09 MB) & `kensington_marrakech.csv` (1.65 MB) — 882 properties
+- **Sarouty / Barnes / Selektimmo**: `sarouty_marrakech.json` (0.98 MB) & `sarouty_marrakech.csv` (0.68 MB) — 705 properties
+- **Bosworth Property**: `bosworth_marrakech.json` (0.45 MB) & `bosworth_marrakech.csv` (0.37 MB) — 180 properties
 
 ---
 
 ## 🖥️ Interactive Web Intelligence Explorer
 
-The repository contains a lightweight, zero-dependency, ultra-fast web application (`index.html`, `style.css`, `app.js`, `data.js`):
-
-- **Multi-Source Filter**: Toggle between all platforms (`Mubawab`, `Kensington`, `Avito`, `Sarouty`, `Bosworth`).
-- **Granular Real Estate Search**: Filter by Transaction (`Vente` vs `Location`), Property Type (`Villa`, `Riad`, `Appartement`, etc.), Quartier, Price range (MAD), and Surface (m²).
-- **Sorting Engine**: Sort by Price (Ascending/Descending), Surface, or Relevance.
-- **Detailed Modal Inspector**: View full descriptions, amenities tags, photo counts, and one-click redirection to official platform ad pages.
-- **Responsive & Standalone**: Self-contained client-side architecture with responsive mobile drawer filters and instant client-side pagination.
+- **Live URL**: [https://ayoubjalalnasserclovis.github.io/SOURCING-SCRAPING/](https://ayoubjalalnasserclovis.github.io/SOURCING-SCRAPING/)
+- **Multi-Source Filter**: Toggle between `Avito`, `Mubawab`, `Kensington`, `Sarouty`, and `Bosworth`.
+- **Search & Filters**: Type, Quartier, Vente vs Location, Price Min/Max (MAD), Surface Min/Max (m²).
+- **Sorting**: Price (asc/desc), Surface, or Natural Rank.
+- **Detailed Modal**: Inspect complete property description, amenities, and click through to original listing on each respective platform.
 
 ---
 
-## 🛠️ Architecture & Anti-Bot Strategy
+## 🛠️ Architecture & Scraping Engine
 
 ```
-                      ┌──────────────────────────────────────────────┐
-                      │        Multi-Platform Scraping Suite         │
-                      └──────────────────────┬───────────────────────┘
-                                             │
-      ┌──────────────────┬───────────────────┼───────────────────┬──────────────────┐
-      ▼                  ▼                   ▼                   ▼                  ▼
-┌───────────┐      ┌───────────┐       ┌───────────┐       ┌───────────┐      ┌───────────┐
-│  Mubawab  │      │ Kensington│       │   Avito   │       │  Sarouty  │      │ Bosworth  │
-│  Scraper  │      │  Luxury   │       │  Direct   │       │  Agency   │      │  Medina   │
-└─────┬─────┘      └─────┬─────┘       └─────┬─────┘       └─────┬─────┘      └─────┬─────┘
-      │                  │                   │                   │                  │
-      └──────────────────┼───────────────────┼───────────────────┼──────────────────┘
-                         ▼                   ▼                   ▼
-             ┌────────────────────────────────────────────────────────┐
-             │       unify_sourcing.py (Currency, Normalization)      │
-             └───────────────────────────┬────────────────────────────┘
-                                         ▼
-             ┌────────────────────────────────────────────────────────┐
-             │   sourcing_listings.db (SQLite) + Master JSON & CSV    │
-             └───────────────────────────┬────────────────────────────┘
-                                         ▼
-             ┌────────────────────────────────────────────────────────┐
-             │  Web Intelligence Explorer (index.html + data.js)      │
-             └────────────────────────────────────────────────────────┘
+                      ┌────────────────────────────────────────────────────────┐
+                      │          5 Autonomous Specialized Subagents            │
+                      └───────────────────────────┬────────────────────────────┘
+                                                  │
+      ┌───────────────────┬───────────────────────┼───────────────────────┬───────────────────┐
+      ▼                   ▼                       ▼                       ▼                   ▼
+┌───────────┐       ┌───────────┐           ┌───────────┐           ┌───────────┐       ┌───────────┐
+│   Avito   │       │  Mubawab  │           │Kensington │           │  Sarouty  │       │ Bosworth  │
+│ 33,743 ads│       │ 11,450 ads│           │  882 ads  │           │  705 ads  │       │  180 ads  │
+└─────┬─────┘       └─────┬─────┘           └─────┬─────┘           └─────┬─────┘       └─────┬─────┘
+      │                   │                       │                       │                   │
+      └───────────────────┴───────────────────────┼───────────────────────┴───────────────────┘
+                                                  ▼
+                                      ┌───────────────────────┐
+                                      │   unify_sourcing.py   │
+                                      │ Normalization & Dedupe│
+                                      └───────────┬───────────┘
+                                                  ▼
+                                      ┌───────────────────────┐
+                                      │  sourcing_listings.db │
+                                      │ 46,954 Unified Records│
+                                      └───────────┬───────────┘
+                                                  ▼
+                                      ┌───────────────────────┐
+                                      │ Interactive Web App   │
+                                      │ (index.html + data.js)│
+                                      └───────────────────────┘
 ```
-
-1. **Anti-Bot Defense**:
-   - `curl_cffi` TLS fingerprinting (`impersonate="chrome120"`) replicates real browser TLS client hellos, HTTP/2 frames, and header orders.
-   - Bypasses Cloudflare, Datadome, and Akamai rate limiting without headful browser overhead.
-2. **Selector Engine**:
-   - Built on `Scrapling` CSS/XPath selector engine with resilient fallbacks for dynamic layouts and Next.js hydration scripts (`__NEXT_DATA__`).
-3. **Normalization & Quality Control**:
-   - Automatic currency exchange conversion for foreign riad and villa portals (EUR & GBP to Moroccan Dirhams MAD).
-   - Standardized neighborhood taxonomy (e.g. *Guéliz*, *Palmeraie*, *Hivernage*, *Médina*, *Amelkis*, *Targa*).
 
 ---
 
-## 🚀 Quickstart & Usage
-
-### 1. Installation & Environment Setup
+## 🚀 Quickstart
 
 ```bash
 # Clone the repository
 git clone https://github.com/ayoubjalalnasserclovis/SOURCING-SCRAPING.git
 cd SOURCING-SCRAPING
 
-# Create virtual environment
-python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-
-# Install required dependencies
+# Install dependencies
 pip install scrapling curl_cffi
-```
 
-### 2. Run Individual Scrapers
-
-```bash
-# Scrape Kensington Luxury Properties
-python scrape_kensington.py
-
-# Scrape Avito Marrakech
-python scrape_avito.py
-
-# Scrape Bosworth Medina Riads
-python scrape_bosworth.py
-
-# Scrape Sarouty / Barnes Agencies
-python scrape_sarouty_marrakech.py
-```
-
-### 3. Orchestrate Full Sourcing & Web Build
-
-```bash
-# Runs all scrapers, unifies datasets, and rebuilds data.js for the web app:
+# Run full sourcing pipeline across all 5 platforms
 python run_all_sourcing.py
-```
 
-### 4. Launch Local Web Dashboard
-
-Simply open `index.html` in any modern web browser or start a local server:
-
-```bash
+# Launch web explorer
 python -m http.server 8000
-# Then navigate to: http://localhost:8000
 ```
-
----
-
-## ⚖️ License & Disclaimer
-
-This project is created for market research, sourcing intelligence, and academic exploration. All intellectual property, property descriptions, photographs, and trademarks belong to their respective platforms and listing owners.
