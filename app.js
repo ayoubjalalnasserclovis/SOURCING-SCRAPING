@@ -574,6 +574,72 @@
         closeModal();
       }
     });
+
+    // Export CSV of currently filtered listings
+    const exportCsvBtn = document.getElementById('export-csv-btn');
+    if (exportCsvBtn) {
+      exportCsvBtn.addEventListener('click', () => {
+        const dataToExport = filteredListings.length > 0 ? filteredListings : allListings;
+        if (!dataToExport || dataToExport.length === 0) {
+          alert('Aucune annonce à exporter.');
+          return;
+        }
+
+        const headers = [
+          'ID',
+          'Plateforme',
+          'Titre',
+          'Transaction',
+          'Type de Bien',
+          'Quartier',
+          'Prix (MAD)',
+          'Prix Affiché',
+          'Surface (m²)',
+          'Chambres',
+          'Salles de bain',
+          'URL Originale',
+          'Photo Principale'
+        ];
+
+        const escapeCsv = (str) => {
+          if (str === null || str === undefined) return '""';
+          const s = String(str).replace(/"/g, '""');
+          return `"${s}"`;
+        };
+
+        const rows = [headers.map(escapeCsv).join(';')];
+
+        dataToExport.forEach(item => {
+          rows.push([
+            escapeCsv(item.id),
+            escapeCsv(item.platform),
+            escapeCsv(item.title),
+            escapeCsv(item.transaction_type),
+            escapeCsv(item.house_type),
+            escapeCsv(item.quartier),
+            escapeCsv(item.price_mad || 'N/A'),
+            escapeCsv(item.price_raw || ''),
+            escapeCsv(item.surface_m2 || 'N/A'),
+            escapeCsv(item.bedrooms || 'N/A'),
+            escapeCsv(item.bathrooms || 'N/A'),
+            escapeCsv(item.url),
+            escapeCsv(item.main_image)
+          ].join(';'));
+        });
+
+        // Add UTF-8 BOM so Excel opens French accents and numbers cleanly
+        const csvContent = '\uFEFF' + rows.join('\r\n');
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        link.setAttribute('download', `marrakech_immobilier_selection_${dataToExport.length}_biens.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      });
+    }
   }
 
   // -------------------------------------------------------------------------

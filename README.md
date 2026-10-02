@@ -61,10 +61,18 @@ This platform crawls the **integrality** of Marrakech property listings across *
 
 All datasets are normalized with validated coordinates, types, dirham prices (`price_mad`), surface in square meters, and direct links to original listing pages.
 
-### 🌐 Unified Master Datasets
+### 🌐 Unified Master Datasets & Multi-Page Exports
+- **Classeur Excel Multi-Pages (.xlsx)**: `marrakech_immobilier_multi_plateformes.xlsx` (8.27 MB, 46,954 biens)
+  - 📑 **Page 1 : 📊 Synthèse Globale** (KPIs, parts de marché, prix moyens, médianes, répartition par type)
+  - 📑 **Page 2 : 🔵 Avito.ma** (33,743 biens)
+  - 📑 **Page 3 : 🟠 Mubawab.ma** (11,450 biens)
+  - 📑 **Page 4 : 🟢 Kensington Luxury** (882 biens)
+  - 📑 **Page 5 : 🟣 Barnes & Sarouty** (705 biens)
+  - 📑 **Page 6 : 🟤 Bosworth Property** (180 biens)
+- **Générateur Multi-Pages**: `export_multi_pages.py` (Script Python pour régénérer le classeur multi-onglets)
 - **SQLite Database**: `sourcing_listings.db` (Indexed on `platform`, `house_type`, `quartier`, `price_mad`, `surface_m2`)
-- **JSON Master Export**: `sourcing_all_listings.json` (46,954 records, 46.3 MB)
-- **CSV Master Export**: `sourcing_all_listings.csv` (46,954 records, 33.3 MB)
+- **JSON Master Export**: `sourcing_all_listings.json` (46,954 records)
+- **CSV Master Export**: `sourcing_all_listings.csv` (46,954 records)
 
 ### 📁 Individual Platform Datasets
 - **Avito.ma**: `avito_marrakech.json` (33.5 MB) & `avito_marrakech.csv` (20.7 MB) — 33,743 properties
