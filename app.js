@@ -63,9 +63,33 @@
   // Initialization
   // -------------------------------------------------------------------------
   function init() {
-    if (window.MUBAWAB_DATA && Array.isArray(window.MUBAWAB_DATA)) {
+    if (window.MUBAWAB_COMPACT_DATA && window.MUBAWAB_COMPACT_DATA.records) {
+      const pList = window.MUBAWAB_COMPACT_DATA.platforms || [];
+      const tList = window.MUBAWAB_COMPACT_DATA.transactions || [];
+      const hList = window.MUBAWAB_COMPACT_DATA.house_types || [];
+      allListings = window.MUBAWAB_COMPACT_DATA.records.map(r => ({
+        id: r[0],
+        platform: pList[r[1]] || 'Autre',
+        title: r[2],
+        url: r[3],
+        transaction_type: tList[r[4]] || 'Vente',
+        house_type: hList[r[5]] || 'Bien',
+        quartier: r[6],
+        price_raw: r[7],
+        price_mad: r[8],
+        surface_m2: r[9],
+        bedrooms: r[10],
+        bathrooms: r[11],
+        main_image: r[12]
+      }));
+      setupKPIs();
+      populateDropdowns();
+      applyFilters();
+      bindEvents();
+    } else if (window.MUBAWAB_DATA && Array.isArray(window.MUBAWAB_DATA)) {
       allListings = window.MUBAWAB_DATA;
       setupKPIs();
+      populateDropdowns();
       applyFilters();
       bindEvents();
     } else {
@@ -75,6 +99,7 @@
         .then(data => {
           allListings = data;
           setupKPIs();
+          populateDropdowns();
           applyFilters();
           bindEvents();
         })
@@ -91,11 +116,29 @@
       kpiTotal.textContent = stats.total.toLocaleString();
       kpiAvgPrice.textContent = stats.avg_price.toLocaleString() + ' DH';
       const topQ = Object.entries(stats.quartiers)[0];
-      if (topQ) kpiTopQuartier.textContent = `${topQ[0]} (${topQ[1]})`;
+      if (topQ) kpiTopQuartier.textContent = `${topQ[0]} (${topQ[1].toLocaleString()})`;
       const topT = Object.entries(stats.house_types)[0];
       if (topT) {
         const pct = Math.round((topT[1] / stats.total) * 100);
         kpiTopType.textContent = `${topT[0]} (${pct}%)`;
+      }
+    }
+  }
+
+  function populateDropdowns() {
+    if (window.MUBAWAB_STATS) {
+      const stats = window.MUBAWAB_STATS;
+      if (platformSelect && stats.platforms) {
+        const cur = platformSelect.value || 'all';
+        platformSelect.innerHTML = `<option value="all">Toutes les plateformes (${stats.total.toLocaleString()})</option>` +
+          Object.entries(stats.platforms).map(([p, cnt]) => `<option value="${escapeHtml(p)}">${escapeHtml(p)} (${cnt.toLocaleString()})</option>`).join('');
+        platformSelect.value = cur;
+      }
+      if (quartierSelect && stats.quartiers) {
+        const cur = quartierSelect.value || 'all';
+        quartierSelect.innerHTML = '<option value="all">Tous les quartiers de Marrakech</option>' +
+          Object.entries(stats.quartiers).map(([q, cnt]) => `<option value="${escapeHtml(q)}">${escapeHtml(q)} (${cnt.toLocaleString()})</option>`).join('');
+        quartierSelect.value = cur;
       }
     }
   }
