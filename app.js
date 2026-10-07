@@ -22,6 +22,8 @@
     maxPrice: null,
     minSurface: null,
     maxSurface: null,
+    minPriceM2: null,
+    maxPriceM2: null,
     sortBy: 'default'
   };
 
@@ -36,6 +38,8 @@
   const priceMaxInput = document.getElementById('price-max');
   const surfaceMinInput = document.getElementById('surface-min');
   const surfaceMaxInput = document.getElementById('surface-max');
+  const priceM2MinInput = document.getElementById('pricem2-min');
+  const priceM2MaxInput = document.getElementById('pricem2-max');
   const sortSelect = document.getElementById('sort-select');
   const resetBtn = document.getElementById('reset-filters-btn');
   const emptyResetBtn = document.getElementById('empty-reset-btn');
@@ -180,6 +184,15 @@
       if (minS !== null && s !== null && s < minS) return false;
       if (maxS !== null && s !== null && s > maxS) return false;
 
+      // Price per m² Range
+      const minM2 = filters.minPriceM2;
+      const maxM2 = filters.maxPriceM2;
+      if (minM2 !== null || maxM2 !== null) {
+        const pm2 = (p && s && s >= 10) ? Math.round(p / s) : null;
+        if (minM2 !== null && (pm2 === null || pm2 < minM2)) return false;
+        if (maxM2 !== null && (pm2 === null || pm2 > maxM2)) return false;
+      }
+
       // Keyword Search
       if (q) {
         const haystack = `${item.title} ${item.platform} ${item.quartier} ${item.house_type} ${item.features} ${item.description}`.toLowerCase();
@@ -203,6 +216,20 @@
         break;
       case 'price-desc':
         filteredListings.sort((a, b) => ((b.price_mad !== undefined ? b.price_mad : b.price_numeric) || 0) - ((a.price_mad !== undefined ? a.price_mad : a.price_numeric) || 0));
+        break;
+      case 'pricem2-asc':
+        filteredListings.sort((a, b) => {
+          const pmA = (a.price_mad && a.surface_m2 >= 10) ? (a.price_mad / a.surface_m2) : 999999999;
+          const pmB = (b.price_mad && b.surface_m2 >= 10) ? (b.price_mad / b.surface_m2) : 999999999;
+          return pmA - pmB;
+        });
+        break;
+      case 'pricem2-desc':
+        filteredListings.sort((a, b) => {
+          const pmA = (a.price_mad && a.surface_m2 >= 10) ? (a.price_mad / a.surface_m2) : 0;
+          const pmB = (b.price_mad && b.surface_m2 >= 10) ? (b.price_mad / b.surface_m2) : 0;
+          return pmB - pmA;
+        });
         break;
       case 'surface-desc':
         filteredListings.sort((a, b) => (b.surface_m2 || 0) - (a.surface_m2 || 0));
@@ -270,6 +297,14 @@
       }
     }
 
+    const numPrice = item.price_mad || item.price_numeric;
+    const numSurf = item.surface_m2;
+    let priceM2Badge = '';
+    if (numPrice && numPrice > 0 && numSurf && numSurf >= 10) {
+      const pm2 = Math.round(numPrice / numSurf);
+      priceM2Badge = `<span class="badge-price-m2">${pm2.toLocaleString()} DH/m²</span>`;
+    }
+
     return `
       <article class="card" data-id="${item.id}">
         <div class="card-img-wrap">
@@ -283,7 +318,10 @@
         </div>
 
         <div class="card-body">
-          <div class="card-price">${escapeHtml(item.price_raw || 'Prix sur demande')}</div>
+          <div class="card-price-row">
+            <div class="card-price">${escapeHtml(item.price_raw || 'Prix sur demande')}</div>
+            ${priceM2Badge}
+          </div>
           <h2 class="card-title" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</h2>
           <div class="card-location">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
@@ -291,10 +329,10 @@
           </div>
 
           <div class="card-specs">
-            ${item.surface_raw ? `<div class="spec-item"><span class="spec-icon">📐</span> ${escapeHtml(item.surface_raw)}</div>` : ''}
-            ${item.bedrooms ? `<div class="spec-item"><span class="spec-icon">🛏️</span> ${escapeHtml(item.bedrooms)}</div>` : ''}
-            ${item.bathrooms ? `<div class="spec-item"><span class="spec-icon">🚿</span> ${escapeHtml(item.bathrooms)}</div>` : ''}
-            ${!item.surface_raw && !item.bedrooms && item.rooms ? `<div class="spec-item"><span class="spec-icon">🚪</span> ${escapeHtml(item.rooms)}</div>` : ''}
+            ${numSurf && numSurf > 0 ? `<div class="spec-item"><span class="spec-icon">📐</span> ${numSurf.toLocaleString()} m²</div>` : (item.surface_raw ? `<div class="spec-item"><span class="spec-icon">📐</span> ${escapeHtml(item.surface_raw)}</div>` : '')}
+            ${item.bedrooms ? `<div class="spec-item"><span class="spec-icon">🛏️</span> ${escapeHtml(item.bedrooms)} ch.</div>` : ''}
+            ${item.bathrooms ? `<div class="spec-item"><span class="spec-icon">🚿</span> ${escapeHtml(item.bathrooms)} sdb</div>` : ''}
+            ${!numSurf && !item.bedrooms && item.rooms ? `<div class="spec-item"><span class="spec-icon">🚪</span> ${escapeHtml(item.rooms)} pièces</div>` : ''}
           </div>
 
           ${featuresHtml ? `<div class="card-features">${featuresHtml}</div>` : ''}
@@ -304,7 +342,7 @@
               Voir détails &rarr;
             </button>
             <a href="${item.url}" target="_blank" rel="noopener noreferrer" class="btn-mubawab">
-              Mubawab ↗
+              ${escapeHtml(item.platform || 'Source')} ↗
             </a>
           </div>
         </div>
@@ -376,6 +414,13 @@
       }
     }
 
+    const numPriceModal = item.price_mad || item.price_numeric;
+    const numSurfModal = item.surface_m2;
+    let pm2Modal = 'N/A';
+    if (numPriceModal && numPriceModal > 0 && numSurfModal && numSurfModal >= 10) {
+      pm2Modal = `${Math.round(numPriceModal / numSurfModal).toLocaleString()} DH/m²`;
+    }
+
     modalContent.innerHTML = `
       <img class="modal-hero-img" src="${imgUrl}" alt="${escapeHtml(item.title)}" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src='${fallbackImg}';">
       <div class="modal-body">
@@ -394,7 +439,11 @@
         <div class="modal-specs-grid">
           <div class="modal-spec-box">
             <span class="modal-spec-label">Surface</span>
-            <span class="modal-spec-value">${escapeHtml(item.surface_raw || 'N/A')}</span>
+            <span class="modal-spec-value">${numSurfModal ? `${numSurfModal.toLocaleString()} m²` : escapeHtml(item.surface_raw || 'N/A')}</span>
+          </div>
+          <div class="modal-spec-box">
+            <span class="modal-spec-label">Prix au m²</span>
+            <span class="modal-spec-value" style="color:var(--primary);font-weight:700">${pm2Modal}</span>
           </div>
           <div class="modal-spec-box">
             <span class="modal-spec-label">Chambres</span>
@@ -403,10 +452,6 @@
           <div class="modal-spec-box">
             <span class="modal-spec-label">Salles de bain</span>
             <span class="modal-spec-value">${escapeHtml(item.bathrooms || 'N/A')}</span>
-          </div>
-          <div class="modal-spec-box">
-            <span class="modal-spec-label">Pièces</span>
-            <span class="modal-spec-value">${escapeHtml(item.rooms || 'N/A')}</span>
           </div>
         </div>
 
@@ -517,6 +562,19 @@
     surfaceMinInput.addEventListener('input', onSurfaceChange);
     surfaceMaxInput.addEventListener('input', onSurfaceChange);
 
+    // Price per m² inputs
+    let priceM2Debounce;
+    const onPriceM2Change = () => {
+      clearTimeout(priceM2Debounce);
+      priceM2Debounce = setTimeout(() => {
+        filters.minPriceM2 = priceM2MinInput.value ? parseInt(priceM2MinInput.value, 10) : null;
+        filters.maxPriceM2 = priceM2MaxInput.value ? parseInt(priceM2MaxInput.value, 10) : null;
+        applyFilters();
+      }, 300);
+    };
+    if (priceM2MinInput) priceM2MinInput.addEventListener('input', onPriceM2Change);
+    if (priceM2MaxInput) priceM2MaxInput.addEventListener('input', onPriceM2Change);
+
     // Sort select
     sortSelect.addEventListener('change', (e) => {
       filters.sortBy = e.target.value;
@@ -535,6 +593,8 @@
       priceMaxInput.value = '';
       surfaceMinInput.value = '';
       surfaceMaxInput.value = '';
+      if (priceM2MinInput) priceM2MinInput.value = '';
+      if (priceM2MaxInput) priceM2MaxInput.value = '';
       sortSelect.value = 'default';
 
       transBtns.forEach(b => b.classList.remove('active'));
@@ -549,6 +609,8 @@
       filters.maxPrice = null;
       filters.minSurface = null;
       filters.maxSurface = null;
+      filters.minPriceM2 = null;
+      filters.maxPriceM2 = null;
       filters.sortBy = 'default';
 
       applyFilters();

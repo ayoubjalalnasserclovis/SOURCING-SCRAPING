@@ -197,13 +197,25 @@
             </div>
           </div>
 
+          <!-- Prix au m² Range -->
+          <div class="form-group">
+            <label>Prix au m² (DH/m²)</label>
+            <div class="range-inputs">
+              <input type="number" id="pricem2-min" placeholder="Min DH/m²" min="0" step="1000">
+              <span class="range-sep">-</span>
+              <input type="number" id="pricem2-max" placeholder="Max DH/m²" min="0" step="1000">
+            </div>
+          </div>
+
           <!-- Tri / Sort -->
           <div class="form-group">
             <label for="sort-select">Trier par</label>
             <select id="sort-select" class="custom-select">
               <option value="default">Recommandé</option>
-              <option value="price-asc">Prix : Croissant</option>
-              <option value="price-desc">Prix : Décroissant</option>
+              <option value="price-asc">Prix Total : Croissant</option>
+              <option value="price-desc">Prix Total : Décroissant</option>
+              <option value="pricem2-asc">Prix au m² : Moins Cher</option>
+              <option value="pricem2-desc">Prix au m² : Plus Cher</option>
               <option value="surface-desc">Surface : Plus Grand</option>
               <option value="images-desc">Nombre de Photos</option>
             </select>
