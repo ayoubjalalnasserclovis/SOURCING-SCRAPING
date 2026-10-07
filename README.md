@@ -62,14 +62,20 @@ This platform crawls the **integrality** of Marrakech property listings across *
 All datasets are normalized with validated coordinates, types, dirham prices (`price_mad`), surface in square meters, and direct links to original listing pages.
 
 ### 🌐 Unified Master Datasets & Multi-Page Exports
-- **Classeur Excel Multi-Pages (.xlsx)**: `marrakech_immobilier_multi_plateformes.xlsx` (8.27 MB, 46,954 biens)
+- **📑 ANALYSE GLOBALE (1 Feuille par Quartier)** : `ANALYSE_GLOBALE.xlsx` / `ANALYSE GLOBALE.xlsx` (7.57 MB, 46 954 biens)
+  - 📑 **Page 1 : 📑 Sommaire Interactif** (Index cliquable des 212 quartiers avec volumes, prix moyens, surfaces, ventilation par type et liens d'accès direct).
+  - 📑 **Pages 2 à 213 : 🏘️ 212 Feuilles Dédiées par Quartier** (Guéliz, Hivernage, Palmeraie, Targa, Agdal, Médina, Prestigia, Route de l'Ourika, etc.).
+  - 🔍 **Spécifications Complètes de Chaque Bien** : ID, Titre, Lien direct cliquable vers l'annonce, Type (Villa, Appartement, Riad, Terrain, Commerce...), Transaction (Vente/Location), Prix (DH), Surface (m²), Prix au m² (DH/m²), Chambres, Salles de Bain, Plateforme, Vendeur, Atouts, et Description.
+  - 🔙 **Bouton Retour Sommaire** sur chaque feuille pour navigation instantanée.
+- **📈 Étude de Marché & Rendements (.xlsx)**: `analyse_marche_immobilier_marrakech.xlsx` (Tableau de bord Macro, Prix/m² & Rendements locatifs appartements, Villas & Domaines d'exception, Marché des Riads en Médina, Matrice Tous Quartiers).
+- **Classeur Excel Multi-Pages par Plateforme (.xlsx)**: `marrakech_immobilier_multi_plateformes.xlsx` (8.27 MB, 46,954 biens)
   - 📑 **Page 1 : 📊 Synthèse Globale** (KPIs, parts de marché, prix moyens, médianes, répartition par type)
   - 📑 **Page 2 : 🔵 Avito.ma** (33,743 biens)
   - 📑 **Page 3 : 🟠 Mubawab.ma** (11,450 biens)
   - 📑 **Page 4 : 🟢 Kensington Luxury** (882 biens)
   - 📑 **Page 5 : 🟣 Barnes & Sarouty** (705 biens)
   - 📑 **Page 6 : 🟤 Bosworth Property** (180 biens)
-- **Générateur Multi-Pages**: `export_multi_pages.py` (Script Python pour régénérer le classeur multi-onglets)
+- **Générateurs Python**: `build_analyse_globale.py`, `generate_excel_analysis.py`, `export_multi_pages.py`
 - **SQLite Database**: `sourcing_listings.db` (Indexed on `platform`, `house_type`, `quartier`, `price_mad`, `surface_m2`)
 - **JSON Master Export**: `sourcing_all_listings.json` (46,954 records)
 - **CSV Master Export**: `sourcing_all_listings.csv` (46,954 records)
